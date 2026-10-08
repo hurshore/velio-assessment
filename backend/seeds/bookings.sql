@@ -6,4 +6,6 @@ VALUES
   ('b3000000-0000-4000-8000-000000000002','a1000000-0000-4000-8000-000000000001','Cancelled picnic · demo seed',
    'Synthetic cancelled activity. New bookings are rejected.', 'Marina gate, Lagos','2030-01-15T07:00:00Z','Africa/Lagos','cancelled',2,0,'NGN')
 ON CONFLICT (id) DO NOTHING;
+SELECT assign_invite_experiment(id,'1',50) FROM activities
+WHERE id::text LIKE 'b3000000-%';
 COMMIT;

@@ -24,6 +24,7 @@ void redis.connect().catch(error => reportFailure({ component: 'redis.connect' }
 
 const app = createApp({
   postgres,
+  invites: config.invites,
   redis: { ping: () => redis.withCommandOptions({ abortSignal: AbortSignal.timeout(dependencyTimeoutMs) }).ping() },
 }, config.webOrigin);
 const server = app.listen(config.port, config.host, () => {

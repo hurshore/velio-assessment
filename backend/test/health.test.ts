@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import test from 'node:test';
+import { loadInviteConfig } from '../src/experiments.js';
 import { createApp } from '../src/app.js';
 
 test('process health stays available when dependencies fail', async () => {
-  const app = createApp({
+  const app = createApp({ invites: loadInviteConfig({}),
     postgres: { query: async () => { throw new Error('database unavailable'); } },
     redis: { ping: async () => { throw new Error('redis unavailable'); } },
   }, 'http://localhost:5173', () => {});
@@ -25,7 +26,7 @@ test('process health stays available when dependencies fail', async () => {
 
 for (const failing of ['none', 'postgres', 'redis', 'both'] as const) {
   test(`readiness reflects ${failing} dependency failures without exposing details`, async () => {
-    const app = createApp({
+    const app = createApp({ invites: loadInviteConfig({}),
       postgres: { query: async () => {
         if (failing === 'postgres' || failing === 'both') throw new Error('private-db-password');
         return { rows: [{ '?column?': 1 }] };

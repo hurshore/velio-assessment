@@ -1,12 +1,17 @@
-import { api, message } from './api';
+import { api, message, type PolicyReason } from './api';
 import { isRecord, unexpectedResponseMessage } from './response-envelope';
 
 export interface RenderedViewEvent {
   readonly id: string; readonly schemaVersion: 1; readonly name: 'activity_viewed'; readonly source: 'client'; readonly platform: 'web';
   readonly occurredAt: string; readonly actorId?: string; readonly journeyId: string; readonly activityId: string; readonly planId: string;
 }
+export interface RenderedExposureEvent extends Omit<RenderedViewEvent, 'name'> {
+  readonly name: 'experiment_exposed';
+  readonly displayedInviteState: { readonly enabled: boolean; readonly creationEnabled: boolean; readonly reason: PolicyReason };
+}
+type RenderedEvent = RenderedViewEvent | RenderedExposureEvent;
 interface Delivery {
-  readonly event: RenderedViewEvent;
+  readonly event: RenderedEvent;
   readonly title: string;
   readonly status: 'sending' | 'failed';
   readonly error?: string;
@@ -14,6 +19,7 @@ interface Delivery {
 // Owned by the host application, so local navigation cannot cancel a captured view or erase its failure.
 // This is an in-memory delivery registry; refresh/closure is best effort, without an offline queue.
 export class ViewDelivery {
+  private exposures = new Map<string, string>();
   private entries = new Map<string, Delivery>();
   private listeners = new Set<() => void>();
   private snapshot: readonly Delivery[] = [];
@@ -22,7 +28,15 @@ export class ViewDelivery {
     this.listeners.add(listener);
     return () => { this.listeners.delete(listener); };
   };
-  capture(event: RenderedViewEvent, title: string) {
+  // Keep the last displayed state per identity/activity for this app session.
+  // A state change creates a new observation; retries preserve the frozen original.
+  captureExposure(event: RenderedExposureEvent, title: string, signature: string) {
+    const key = JSON.stringify([event.activityId, event.actorId ? 'actor' : 'journey', event.actorId ?? event.journeyId]);
+    if (this.exposures.get(key) === signature) return;
+    this.exposures.set(key, signature);
+    this.capture({ ...event, displayedInviteState: Object.freeze({ ...event.displayedInviteState }) }, title);
+  }
+  capture(event: RenderedEvent, title: string) {
     if (this.entries.has(event.id)) return;
     const delivery: Delivery = { event: Object.freeze({ ...event }), title, status: 'sending' };
     this.entries.set(event.id, delivery);

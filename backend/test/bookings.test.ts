@@ -3,8 +3,9 @@ import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import { readFile } from 'node:fs/promises';
-import pg from 'pg';
 import { before, after, test } from 'node:test';
+import pg from 'pg';
+import { loadInviteConfig } from '../src/experiments.js';
 import { createApp } from '../src/app.js';
 import { runMigrations } from '../src/migrations.js';
 
@@ -24,7 +25,7 @@ before(async () => {
   await runMigrations(new pg.Client({ connectionString: migrationUrl }), new URL('../migrations/', import.meta.url).pathname);
   owner = new pg.Pool({ connectionString: migrationUrl });
   runtime = new pg.Pool({ connectionString: url(process.env.DATABASE_URL!), max: 60, connectionTimeoutMillis: 3000 });
-  server = createApp({ postgres: runtime, redis: { ping: async () => 'PONG' } }, 'http://localhost:5173').listen(0, '127.0.0.1');
+  server = createApp({ invites: loadInviteConfig({}), postgres: runtime, redis: { ping: async () => 'PONG' } }, 'http://localhost:5173').listen(0, '127.0.0.1');
   await once(server, 'listening');
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`;
 });

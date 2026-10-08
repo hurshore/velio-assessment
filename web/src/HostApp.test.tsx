@@ -50,7 +50,8 @@ test('shows authoritative details and records a rendered view, including anonymo
   const events: Record<string, unknown>[] = [];
   vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options: RequestInit) => {
     if (url.endsWith('/identities')) return Promise.resolve(response([identity]));
-    if (url.endsWith('/events')) { events.push(JSON.parse(options.body as string)); return Promise.resolve(response({ id: JSON.parse(options.body as string).id, accepted: true })); }
+    if (url.endsWith('/events')) {
+      if (JSON.parse(options.body as string).name === 'experiment_exposed') return Promise.resolve(response({id:JSON.parse(options.body as string).id,accepted:true})); events.push(JSON.parse(options.body as string)); return Promise.resolve(response({ id: JSON.parse(options.body as string).id, accepted: true })); }
     return Promise.resolve(response(url.endsWith('/activities') ? [activity] : activity));
   }));
   render(<HostApp />);
@@ -135,6 +136,7 @@ test('failed view tracking retries the same event without hiding authoritative d
   vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options: RequestInit) => {
     if (url.endsWith('/identities')) return Promise.resolve(response([]));
     if (url.endsWith('/events')) {
+      if (JSON.parse(options.body as string).name === 'experiment_exposed') return Promise.resolve(response({id:JSON.parse(options.body as string).id,accepted:true}));
       events.push(JSON.parse(options.body as string));
       return events.length === 1 ? Promise.reject(new Error('Telemetry unavailable.')) : Promise.resolve(response({ id: JSON.parse(options.body as string).id, accepted: true }));
     }
@@ -157,6 +159,7 @@ test('rendered view delivery survives closing details and retries its original c
   vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options: RequestInit) => {
     if (url.endsWith('/identities')) return Promise.resolve(response([identity, secondIdentity]));
     if (url.endsWith('/events')) {
+      if (JSON.parse(options.body as string).name === 'experiment_exposed') return Promise.resolve(response({id:JSON.parse(options.body as string).id,accepted:true}));
       const body = JSON.parse(options.body as string);
       events.push({ body, signal: options.signal as AbortSignal, actor: (options.headers as Record<string, string>)['X-Demo-Actor-Id']! });
       return events.length === 1 ? new Promise<Response>((_resolve, reject) => { failFirst = reject; }) : Promise.resolve(response({ id: body.id, accepted: false }));
@@ -191,6 +194,7 @@ for (const navigation of ['another activity', 'another identity', 'details refre
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options: RequestInit) => {
       if (url.endsWith('/identities')) return Promise.resolve(response([identity, secondIdentity]));
       if (url.endsWith('/events')) {
+      if (JSON.parse(options.body as string).name === 'experiment_exposed') return Promise.resolve(response({id:JSON.parse(options.body as string).id,accepted:true}));
         const body = JSON.parse(options.body as string);
         events.push({ body, signal: options.signal as AbortSignal, actor: (options.headers as Record<string, string>)['X-Demo-Actor-Id']! });
         return events.length === 1 ? new Promise<Response>((_resolve, reject) => { failFirst = reject; }) : Promise.resolve(response({ id: body.id, accepted: true }));
@@ -227,6 +231,7 @@ test('StrictMode replay does not change a captured view event or cancel its deli
   vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options: RequestInit) => {
     if (url.endsWith('/identities')) return Promise.resolve(response([]));
     if (url.endsWith('/events')) {
+      if (JSON.parse(options.body as string).name === 'experiment_exposed') return Promise.resolve(response({id:JSON.parse(options.body as string).id,accepted:true}));
       events.push({ body: JSON.parse(options.body as string), signal: options.signal as AbortSignal });
       return new Promise<Response>(resolve => { finish = resolve; });
     }
@@ -243,10 +248,12 @@ test('StrictMode replay does not change a captured view event or cancel its deli
 test('a delivery timeout stays observable after details close', async () => {
   vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options: RequestInit) => {
     if (url.endsWith('/identities')) return Promise.resolve(response([]));
-    if (url.endsWith('/events')) return new Promise<Response>((_resolve, reject) => {
+    if (url.endsWith('/events')) {
+      if (JSON.parse(options.body as string).name === 'experiment_exposed') return Promise.resolve(response({id:JSON.parse(options.body as string).id,accepted:true}));
+      return new Promise<Response>((_resolve, reject) => {
       const signal = options.signal as AbortSignal;
       signal.addEventListener('abort', () => reject(signal.reason), { once: true });
-    });
+    }); }
     return Promise.resolve(response(url.endsWith('/activities') ? [activity] : activity));
   }));
   render(<HostApp />);

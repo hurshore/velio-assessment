@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import test from 'node:test';
+import { loadInviteConfig } from '../src/experiments.js';
 import { createApp } from '../src/app.js';
 
 async function withApi(run: (base: string) => Promise<void>) {
-  const app = createApp({
+  const app = createApp({ invites: loadInviteConfig({}),
     postgres: { query: async () => ({ rows: [] }) }, redis: { ping: async () => 'PONG' },
   }, 'http://localhost:5173');
   const server = app.listen(0, '127.0.0.1');
@@ -50,7 +51,7 @@ for (const scenario of [
 test('unexpected errors return a safe 500 and retain correlated server context', async () => {
   const original = Object.assign(new Error('unexpected database failure'), { code: 'EIO' });
   const reported: Array<{ context: Record<string, string>; error: unknown }> = [];
-  const app = createApp({ postgres: { query: () => { throw original; } }, redis: { ping: async () => 'PONG' } },
+  const app = createApp({ invites: loadInviteConfig({}), postgres: { query: () => { throw original; } }, redis: { ping: async () => 'PONG' } },
     'http://localhost:5173', (context, error) => reported.push({ context, error }));
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
