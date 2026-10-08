@@ -7,7 +7,7 @@ export function liveUrl() {
 }
 export interface Identity {
   id: string; displayName: string; generation: number; acquisitionParentId: string | null; acquisitionRootId: string;
-  synthetic: boolean; test: boolean;
+  acquisitionRail: 'public' | 'vouch' | null; synthetic: boolean; test: boolean;
 }
 export type PolicyReason = 'allowed' | 'creation_disabled' | 'control' | 'host_or_booker_required' | 'assignment_unavailable';
 export interface InviteState { creationEnabled: boolean; allowed: boolean; reason: PolicyReason }
@@ -47,6 +47,7 @@ export function parseIdentity(value: unknown): Identity {
   const data = record(value);
   if (typeof data.id !== 'string' || typeof data.displayName !== 'string' || !Number.isInteger(data.generation) ||
     typeof data.acquisitionRootId !== 'string' || !(data.acquisitionParentId === null || typeof data.acquisitionParentId === 'string') ||
+    (data.acquisitionRail !== null && data.acquisitionRail !== 'public' && data.acquisitionRail !== 'vouch') ||
     typeof data.synthetic !== 'boolean' || typeof data.test !== 'boolean') throw new Error('The API returned an unexpected identity.');
   return data as unknown as Identity;
 }
@@ -145,4 +146,72 @@ export function parseBookingState(value: unknown, activity: Activity, actorId: s
     }
   }
   return data as unknown as BookingState;
+}
+
+export interface CreatedInvite {
+  id: string; code: string; rail: 'public'; inviterRole: 'host' | 'booker'; activityId: string; planId: string; createdAt: string; expiresAt: string;
+  availability: { capacity: number; confirmedCount: number; remainingSeats: number; version: number };
+}
+const codePattern = /^[0-9A-HJKMNP-TV-Z]{12}$/;
+const unexpectedInvite = 'The API returned an unexpected invitation.';
+function timestamp(value: unknown): value is string { return typeof value === 'string' && Number.isFinite(Date.parse(value)); }
+function seatCounts(data: Record<string, unknown>): boolean {
+  return ['capacity', 'confirmedCount', 'remainingSeats', 'version'].every(key => Number.isInteger(data[key])) &&
+    Number(data.capacity) >= 1 && Number(data.confirmedCount) >= 0 && Number(data.remainingSeats) >= 0 && Number(data.version) >= 1 &&
+    Number(data.confirmedCount) + Number(data.remainingSeats) === data.capacity;
+}
+export function parseCreatedInvite(value: unknown, activity: Pick<Activity, 'id' | 'planId'>): CreatedInvite {
+  const data = record(value);
+  if (typeof data.id !== 'string' || typeof data.code !== 'string' || !codePattern.test(data.code) || data.rail !== 'public' ||
+    (data.inviterRole !== 'host' && data.inviterRole !== 'booker') || data.activityId !== activity.id || data.planId !== activity.planId ||
+    !timestamp(data.createdAt) || !timestamp(data.expiresAt) || Date.parse(data.expiresAt) <= Date.parse(data.createdAt) ||
+    !isRecord(data.availability) || !seatCounts(data.availability)) {
+    throw new Error(unexpectedInvite);
+  }
+  return data as unknown as CreatedInvite;
+}
+// Mirrors the server's normalization so typed or pasted codes resolve the same invite.
+export function normalizeInviteCode(value: string): string { return value.replace(/[\s-]/g, '').toUpperCase(); }
+export function isInviteCode(value: string): boolean { return codePattern.test(normalizeInviteCode(value)); }
+export function groupedCode(code: string): string { return code.match(/.{1,4}/g)!.join('-'); }
+export function inviteLink(code: string): string { return `${window.location.origin}/invite/${code}`; }
+// Documented installed-app route, to be registered by the Flutter guest app (#8). The journey lets
+// an app claim continue this browser's guest journey instead of starting an unlinked one.
+export function appLink(code: string, journeyId: string): string { return `velio://invite/${code}?journey=${journeyId}`; }
+
+const previewStates = ['valid', 'full', 'expired', 'started', 'cancelled'] as const;
+export type PreviewState = typeof previewStates[number];
+// The public preview's activity: no host identifier, policy or participants are exposed to guests.
+export interface PreviewActivity {
+  id: string; planId: string; title: string; description: string; meetingLocation: string; startsAt: string; timezone: string; status: string;
+  capacity: number; confirmedCount: number; remainingSeats: number; priceMinor: number; currency: string; version: number;
+}
+export interface InvitePreview {
+  code: string; rail: 'public'; trust: 'public'; state: PreviewState; createdAt: string; expiresAt: string;
+  inviter: { displayName: string; role: 'host' | 'booker' }; activity: PreviewActivity;
+}
+function parsePreviewActivity(value: unknown): PreviewActivity {
+  const data = record(value);
+  if (!['id', 'planId', 'title', 'description', 'meetingLocation', 'timezone', 'status', 'currency'].every(key => typeof data[key] === 'string') ||
+    !timestamp(data.startsAt) || !seatCounts(data) || !Number.isInteger(data.priceMinor) || Number(data.priceMinor) < 0) throw new Error(unexpectedInvite);
+  try { new Intl.DateTimeFormat('en', { timeZone: data.timezone as string }); }
+  catch { throw new Error(unexpectedInvite); }
+  return data as unknown as PreviewActivity;
+}
+export function parseInvitePreview(value: unknown): InvitePreview {
+  const data = record(value);
+  const inviter = record(data.inviter);
+  if (typeof data.code !== 'string' || !codePattern.test(data.code) || data.rail !== 'public' || data.trust !== 'public' ||
+    !previewStates.includes(data.state as PreviewState) || !timestamp(data.createdAt) || !timestamp(data.expiresAt) ||
+    typeof inviter.displayName !== 'string' || !inviter.displayName.trim() || (inviter.role !== 'host' && inviter.role !== 'booker')) {
+    throw new Error(unexpectedInvite);
+  }
+  return { ...(data as unknown as InvitePreview), activity: parsePreviewActivity(data.activity) };
+}
+export function formatPrice(minor: number, currency: string): string {
+  if (minor === 0) return 'Free';
+  try {
+    const format = new Intl.NumberFormat(undefined, { style: 'currency', currency });
+    return format.format(minor / 10 ** (format.resolvedOptions().maximumFractionDigits ?? 2));
+  } catch { return `${minor} ${currency} minor units`; }
 }

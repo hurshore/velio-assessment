@@ -28,7 +28,7 @@ function setup(write: (options: RequestInit) => Promise<Response>, lookup: () =>
     close() { this.readyState = 3; this.onclose?.(); }
   });
   vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options: RequestInit) => {
-    if (url.endsWith('/identities')) return Promise.resolve(response([{ id: actorId, displayName: 'Amara', generation: 0, acquisitionParentId: null, acquisitionRootId: actorId, synthetic: false, test: false }]));
+    if (url.endsWith('/identities')) return Promise.resolve(response([{ id: actorId, displayName: 'Amara', generation: 0, acquisitionParentId: null, acquisitionRootId: actorId, acquisitionRail: null, synthetic: false, test: false }]));
     if (url.endsWith('/events')) return Promise.resolve(response({ accepted: true }));
     if (url.endsWith('/bookings')) return write(options);
     if (url.endsWith('/booking')) return Promise.resolve(response(lookup()));

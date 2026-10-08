@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useLiveActivity } from './useLiveActivity';
 import { SeatBooking } from './SeatBooking';
+import { PublicShare } from './PublicShare';
 import type { RenderedViewEvent, ViewDelivery } from './view-delivery';
-import { api, message, parseActivityDetail, type ActivityDetail } from './api';
+import { api, message, parseActivityDetail, type ActivityDetail, type CreatedInvite } from './api';
 
 export function ActivityDetails({ id, actorId, journeyId, close, delivery }: { delivery: ViewDelivery; id: string; actorId: string; journeyId: string; close: () => void }) {
   const section = useRef<HTMLElement>(null);
@@ -14,6 +15,9 @@ export function ActivityDetails({ id, actorId, journeyId, close, delivery }: { d
   const [attempt, setAttempt] = useState(0);
   const [loading, setLoading] = useState(true);
   const [viewVersion, setViewVersion] = useState(0);
+  // Held here, above the remounting view, and scoped to the actor that created it.
+  const [shared, setShared] = useState<{ actorId: string; invite: CreatedInvite } | null>(null);
+  const sharing = { invite: shared?.actorId === actorId ? shared.invite : null, onCreated: (invite: CreatedInvite) => setShared({ actorId, invite }) };
   const pending = useRef<AbortController | null>(null);
   const loadDetails = useCallback(async (renewView: boolean) => {
     pending.current?.abort();
@@ -51,10 +55,11 @@ export function ActivityDetails({ id, actorId, journeyId, close, delivery }: { d
     {error ? <p role="alert">{error}</p> : null}
     <p role="status">{live.status}</p>
     <button disabled={loading} onClick={() => setAttempt(value => value + 1)}>Refresh details</button>
-    {detail && detail.id === id && detailActor === actorId ? <RenderedActivity stale={live.stale} refresh={() => void loadDetails(false)} delivery={delivery} key={`${detail.id}:${actorId}:${viewVersion}`} activity={detail} actorId={actorId} journeyId={journeyId} /> : null}
+    {detail && detail.id === id && detailActor === actorId ? <RenderedActivity sharing={sharing} stale={live.stale} refresh={() => void loadDetails(false)} delivery={delivery} key={`${detail.id}:${actorId}:${viewVersion}`} activity={detail} actorId={actorId} journeyId={journeyId} /> : null}
   </section>;
 }
-function RenderedActivity({ activity, actorId, journeyId, delivery, refresh, stale }: { stale: boolean; delivery: ViewDelivery; activity: ActivityDetail; actorId: string; journeyId: string; refresh: () => void }) {
+type Sharing = { invite: CreatedInvite | null; onCreated: (invite: CreatedInvite) => void };
+function RenderedActivity({ activity, actorId, journeyId, delivery, refresh, stale, sharing }: { stale: boolean; delivery: ViewDelivery; activity: ActivityDetail; actorId: string; journeyId: string; refresh: () => void; sharing: Sharing }) {
   const [event] = useState<RenderedViewEvent>(() => ({ id: crypto.randomUUID(), schemaVersion: 1, name: 'activity_viewed', source: 'client', platform: 'web',
     occurredAt: new Date().toISOString(), actorId: actorId || undefined, journeyId, activityId: activity.id, planId: activity.planId }));
   useEffect(() => {
@@ -75,7 +80,7 @@ function RenderedActivity({ activity, actorId, journeyId, delivery, refresh, sta
     <p className="hint">Availability changes until your booking commits. A displayed seat is not reserved.</p>
     {activity.remainingSeats === 0 ? <p>This activity is full. Confirmed participants are shown below.</p> : null}
     <p className="hint">Shared plan: {activity.planId}</p>
-    <InvitationExperience activity={activity} actorId={actorId} journeyId={journeyId} delivery={delivery} />
+    <InvitationExperience activity={activity} actorId={actorId} journeyId={journeyId} delivery={delivery} sharing={sharing} />
     <SeatBooking stale={stale} activity={activity} actorId={actorId} journeyId={journeyId} refresh={refresh} />
     <h3>Confirmed participants</h3>
     {activity.participants.length ? <ul>{activity.participants.map(user => <li key={user.id}>{user.displayName}</li>)}</ul> :
@@ -92,7 +97,7 @@ function invitationCopy(reason: ActivityDetail['invitation']['policy']['reason']
     case 'assignment_unavailable': return 'Invitation availability could not be verified. You can still book a seat.';
   }
 }
-function InvitationExperience({ activity, actorId, journeyId, delivery }: { activity: ActivityDetail; actorId: string; journeyId: string; delivery: ViewDelivery }) {
+function InvitationExperience({ activity, actorId, journeyId, delivery, sharing }: { activity: ActivityDetail; actorId: string; journeyId: string; delivery: ViewDelivery; sharing: Sharing }) {
   const headingId = useId();
   const { policy, assignment } = activity.invitation;
   const { allowed, creationEnabled, reason } = policy;
@@ -105,6 +110,7 @@ function InvitationExperience({ activity, actorId, journeyId, delivery }: { acti
   return <section aria-labelledby={headingId}>
     <h3 id={headingId}>Invitations</h3>
     <p>{invitationCopy(reason)}</p>
-    <p className="hint">Invitations do not reserve seats. Invitation sharing is coming in a later update.</p>
+    <p className="hint">Invitations do not reserve seats. Only a confirmed booking holds a place.</p>
+    {allowed && actorId ? <PublicShare activity={activity} actorId={actorId} journeyId={journeyId} invite={sharing.invite} onCreated={sharing.onCreated} /> : null}
   </section>;
 }

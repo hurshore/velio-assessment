@@ -1,4 +1,4 @@
-import { api, message, type PolicyReason } from './api';
+import { api, ApiError, message, type PolicyReason, type PreviewState } from './api';
 import { isRecord, unexpectedResponseMessage } from './response-envelope';
 
 export interface RenderedViewEvent {
@@ -9,11 +9,17 @@ export interface RenderedExposureEvent extends Omit<RenderedViewEvent, 'name'> {
   readonly name: 'experiment_exposed';
   readonly displayedInviteState: { readonly enabled: boolean; readonly creationEnabled: boolean; readonly reason: PolicyReason };
 }
-type RenderedEvent = RenderedViewEvent | RenderedExposureEvent;
+// Sent only after a human-visible preview renders; resolving a link alone never records an open.
+export interface RenderedInviteOpenEvent {
+  readonly id: string; readonly schemaVersion: 1; readonly name: 'invite_opened'; readonly source: 'client'; readonly platform: 'web';
+  readonly occurredAt: string; readonly actorId?: string; readonly journeyId: string; readonly inviteCode: string; readonly displayedState: PreviewState;
+}
+type RenderedEvent = RenderedViewEvent | RenderedExposureEvent | RenderedInviteOpenEvent;
 interface Delivery {
   readonly event: RenderedEvent;
   readonly title: string;
-  readonly status: 'sending' | 'failed';
+  // 'rejected' is a definitive, non-retryable server refusal; it stays visible but is never resent.
+  readonly status: 'sending' | 'failed' | 'rejected';
   readonly error?: string;
 }
 // Owned by the host application, so local navigation cannot cancel a captured view or erase its failure.
@@ -59,7 +65,8 @@ export class ViewDelivery {
       if (!isRecord(receipt) || receipt.id !== event.id || typeof receipt.accepted !== 'boolean') throw new Error(unexpectedResponseMessage);
       this.entries.delete(event.id);
     } catch (error) {
-      this.entries.set(event.id, { ...delivery, status: 'failed', error: message(error) });
+      const rejected = error instanceof ApiError && !error.retryable;
+      this.entries.set(event.id, { ...delivery, status: rejected ? 'rejected' : 'failed', error: message(error) });
     }
     this.publish();
   }

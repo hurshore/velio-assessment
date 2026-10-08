@@ -47,8 +47,8 @@ export function createInvitePolicy(db: Database, config: InviteConfig) {
     const reason = policyReason(state.assignment, creationEnabled, state.eligible);
     return { assignment: state.assignment, creationEnabled, allowed: reason === 'allowed', reason };
   }
-  // Future public/vouch handlers must use this bound policy at their write boundary.
-  // Intended resolution/claim behavior is independent of this creation-only policy.
+  // Invitation creation handlers must use this bound policy at their write boundary.
+  // Resolution and claims of issued invites are independent of this creation-only policy.
   async function requireCreation(activityId: string, actorId: string) {
     const policy = await evaluate(activityId, actorId);
     if (!policy.allowed) throw new DomainError(403, 'INVITE_CREATION_UNAVAILABLE', 'New invitations are unavailable for this activity or identity.');

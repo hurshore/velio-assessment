@@ -1,6 +1,3 @@
-import { randomUUID } from 'node:crypto';
-import { Router } from 'express';
-
 export interface Database { query(sql: string, parameters?: unknown[]): Promise<unknown> }
 export class DomainError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
@@ -32,36 +29,4 @@ export function platform(value: unknown): string {
 }
 export async function rows<Row extends object = Record<string, unknown>>(db: Database, sql: string, parameters?: unknown[]): Promise<Row[]> {
   return (await db.query(sql, parameters) as { rows: Row[] }).rows;
-}
-const identityColumns = `id, display_name AS "displayName", generation,
-  acquisition_parent_id AS "acquisitionParentId", acquisition_root_id AS "acquisitionRootId",
-  synthetic, test`;
-export function identityRoutes(db: Database) {
-  const router = Router();
-  router.get('/', async (_request, response) => {
-    response.json({ data: await rows(db, `SELECT ${identityColumns} FROM users ORDER BY created_at, id`), requestId: response.locals.requestId });
-  });
-  router.get('/:id', async (request, response) => {
-    const [user] = await rows(db, `SELECT ${identityColumns} FROM users WHERE id = $1`, [uuid(request.params.id, 'Identity')]);
-    if (!user) throw new DomainError(404, 'NOT_FOUND', 'Demo identity was not found.');
-    response.json({ data: user, requestId: response.locals.requestId });
-  });
-  router.post('/', async (request, response) => {
-    const body = object(request.body);
-    exact(body, ['displayName', 'journeyId', 'platform', 'synthetic', 'test']);
-    const id = randomUUID();
-    // Acquisition and its event share one statement, so an event failure cannot orphan signup history.
-    const [user] = await rows(db, `WITH new_user AS (
-      INSERT INTO users (id, display_name, generation, acquisition_root_id, synthetic, test)
-      VALUES ($1, $2, 0, $1, $3, $4) RETURNING *
-    ), acquisition AS (
-      INSERT INTO signup_attribution (user_id, generation, root_id) SELECT id, 0, id FROM new_user
-    ), event AS (
-      INSERT INTO analytics_events (id, schema_version, name, occurred_at, source, platform, actor_id, journey_id, context, synthetic, test)
-      SELECT $5, 1, 'identity_created', now(), 'server', $6, id, $7,
-        jsonb_build_object('generation', 0, 'acquisitionRootId', id), synthetic, test FROM new_user
-    ) SELECT ${identityColumns} FROM new_user`, [id, text(body.displayName, 'Display name', 100), marker(body.synthetic), marker(body.test), randomUUID(), platform(body.platform), uuid(body.journeyId, 'Journey')]);
-    response.status(201).json({ data: user, requestId: response.locals.requestId });
-  });
-  return router;
 }
