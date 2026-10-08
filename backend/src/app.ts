@@ -1,20 +1,21 @@
-import { defaultInviteConfig, experimentRoutes, type InviteConfig } from './experiments.js';
+import { randomUUID } from 'node:crypto';
+import express, { type ErrorRequestHandler } from 'express';
+import { createInvitePolicy, experimentRoutes, type InviteConfig } from './experiments.js';
 import { bookingRoutes, recordInvalidBooking, type BookingDatabase } from './bookings.js';
 import { eventRoutes } from './events.js';
 import { activityRoutes } from './activities.js';
 import { DomainError, identityRoutes } from './domain.js';
-import { randomUUID } from 'node:crypto';
 import { reportFailure, type FailureReporter } from './diagnostics.js';
 import { readinessTimeoutMs } from './readiness.js';
-import express, { type ErrorRequestHandler } from 'express';
 
 export interface Dependencies {
   postgres: BookingDatabase;
   redis: { ping: () => Promise<string> };
-  invites?: InviteConfig;
+  invites: InviteConfig;
 }
 
 export function createApp(dependencies: Dependencies, webOrigin: string, logFailure: FailureReporter = reportFailure) {
+  const invitePolicy = createInvitePolicy(dependencies.postgres, dependencies.invites);
   const app = express();
   app.disable('x-powered-by');
   app.use((_request, response, next) => {
@@ -72,9 +73,9 @@ export function createApp(dependencies: Dependencies, webOrigin: string, logFail
     response.json({ data: { status: 'ok', dependencies: { postgres: 'ok', redis: 'ok' } }, requestId: response.locals.requestId });
   });
   app.use('/api/events', eventRoutes(dependencies.postgres));
-  app.use('/api/activities', experimentRoutes(dependencies.postgres, dependencies.invites ?? defaultInviteConfig));
+  app.use('/api/activities', experimentRoutes(invitePolicy));
   app.use('/api/activities', bookingRoutes(dependencies.postgres, logFailure));
-  app.use('/api/activities', activityRoutes(dependencies.postgres, dependencies.invites ?? defaultInviteConfig));
+  app.use('/api/activities', activityRoutes(dependencies.postgres, dependencies.invites, invitePolicy));
   app.use('/api/identities', identityRoutes(dependencies.postgres));
   app.use((_request, response) => {
     response.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found.', retryable: false }, requestId: response.locals.requestId });

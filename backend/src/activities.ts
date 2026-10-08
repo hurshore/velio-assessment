@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { assignmentColumns, defaultInviteConfig, type InviteConfig } from './experiments.js';
 import { Router } from 'express';
+import { assignmentJson, type InviteConfig, type InvitePolicy } from './experiments.js';
 import { DomainError, exact, object, rows, text, uuid, type Database } from './domain.js';
 
 function integer(value: unknown, field: string, minimum: number): number {
@@ -23,22 +23,22 @@ export function absoluteTime(value: unknown): string {
 }
 const columns = `a.id, a.host_id AS "hostId", a.title, a.description, a.meeting_location AS "meetingLocation",
   a.starts_at AS "startsAt", a.timezone, a.status, a.capacity, a.confirmed_count AS "confirmedCount",
-  a.capacity-a.confirmed_count AS "remainingSeats", a.price_minor AS "priceMinor", a.currency, a.version, p.id AS "planId", ${assignmentColumns} AS assignment`;
+  a.capacity-a.confirmed_count AS "remainingSeats", a.price_minor AS "priceMinor", a.currency, a.version, p.id AS "planId", ${assignmentJson('e')} AS assignment`;
 export async function activityDetail(db: Database, id: string) {
   const [activity] = await rows(db, `SELECT ${columns},
     COALESCE((SELECT jsonb_agg(jsonb_build_object('id', u.id, 'displayName', u.display_name) ORDER BY b.confirmed_at, b.id)
       FROM bookings b JOIN users u ON u.id=b.user_id WHERE b.activity_id=a.id), '[]'::jsonb) AS participants
-    FROM activities a JOIN plans p ON p.activity_id=a.id JOIN experiment_assignments e ON e.activity_id=a.id WHERE a.id=$1`, [id]);
+    FROM activities a JOIN plans p ON p.activity_id=a.id LEFT JOIN experiment_assignments e ON e.activity_id=a.id WHERE a.id=$1`, [id]);
   if (!activity) throw new DomainError(404, 'NOT_FOUND', 'Activity was not found.');
   return activity;
 }
-export function activityRoutes(db: Database, config: InviteConfig = defaultInviteConfig) {
+export function activityRoutes(db: Database, config: InviteConfig, policy: InvitePolicy) {
   const router = Router();
   router.get('/', async (_request, response) => {
-    response.json({ data: await rows(db, `SELECT ${columns} FROM activities a JOIN plans p ON p.activity_id=a.id JOIN experiment_assignments e ON e.activity_id=a.id ORDER BY a.starts_at, a.id`), requestId: response.locals.requestId });
+    response.json({ data: await rows(db, `SELECT ${columns} FROM activities a JOIN plans p ON p.activity_id=a.id LEFT JOIN experiment_assignments e ON e.activity_id=a.id ORDER BY a.starts_at, a.id`), requestId: response.locals.requestId });
   });
   router.get('/:id', async (request, response) => {
-    response.json({ data: { ...await activityDetail(db, uuid(request.params.id, 'Activity')), inviteCreationEnabled: config.creationEnabled }, requestId: response.locals.requestId });
+    response.json({ data: { ...await activityDetail(db, uuid(request.params.id, 'Activity')), invitePolicy: await policy.evaluate(uuid(request.params.id, 'Activity'), request.get('X-Demo-Actor-Id')) }, requestId: response.locals.requestId });
   });
   router.post('/', async (request, response) => {
     const actor = request.get('X-Demo-Actor-Id');
@@ -60,14 +60,10 @@ export function activityRoutes(db: Database, config: InviteConfig = defaultInvit
     if (!/^[A-Z]{3}$/.test(currency)) throw new DomainError(400, 'INVALID_REQUEST', 'Currency must be an uppercase three-letter code.');
     const [activity] = await rows<{ id: string }>(db, `WITH activity AS (INSERT INTO activities
       (id,host_id,title,description,meeting_location,starts_at,timezone,capacity,price_minor,currency)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id), assignment AS (
-        INSERT INTO experiment_assignments (activity_id,experiment,version,treatment_percent,bucket,variant)
-        SELECT id,'group_invites_v1',$11,$12,bucket,CASE WHEN bucket < $12 * 100 THEN 'treatment' ELSE 'control' END
-        FROM (SELECT id,invite_assignment_bucket(id,$11) AS bucket FROM activity) buckets RETURNING activity_id
-      ) SELECT activity_id AS id FROM assignment`, [randomUUID(), actor, text(body.title, 'Title', 120),
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id) SELECT assign_invite_experiment(id,$11,$12) AS id FROM activity`, [randomUUID(), actor, text(body.title, 'Title', 120),
       text(body.description, 'Description', 2000), text(body.meetingLocation, 'Meeting location', 300),
       startsAt, timezone, integer(body.capacity, 'Capacity', 1), integer(body.priceMinor, 'Price', 0), currency, config.version, config.treatmentPercent]);
-    response.status(201).json({ data: { ...await activityDetail(db, activity!.id), inviteCreationEnabled: config.creationEnabled }, requestId: response.locals.requestId });
+    response.status(201).json({ data: { ...await activityDetail(db, activity!.id), invitePolicy: await policy.evaluate(activity!.id, actor) }, requestId: response.locals.requestId });
   });
   return router;
 }

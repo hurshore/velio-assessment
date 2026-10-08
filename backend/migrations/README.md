@@ -12,7 +12,16 @@ Host migrations require `RUNTIME_DB_USER` naming the existing runtime login. The
 
 `004` adds `bookings(activity_id) INCLUDE (id)` to keep activity-scoped reconciliation and participant reads from scanning unrelated membership. The reconciliation view, row-lock ordering and capacity constraints are unchanged. A representative 100,000-booking plan comparison is captured in [the booking verification report](../../docs/verification/seat-booking.md).
 
-005 persists `group_invites_v1` assignment history. It backfills existing activities
+`005` persists `group_invites_v1` assignment history. It backfills existing activities
 using version 1 at 50% without emitting exposure. Runtime may insert/read but cannot
 rewrite/delete assignments. New API activity and assignment writes share one SQL
-statement. Seed files assign only their owned fixtures and preserve existing rows.
+statement. It grants runtime `INSERT (id) ON activities` for server-generated activity UUIDs. Seed files assign only their owned fixtures and preserve existing rows.
+
+
+`006` is the corrective assignment-integrity migration for already-applied `005`.
+It validates a deferred reverse foreign key from activity to assignment and an
+independent hash/bucket check. A missing legacy assignment aborts migration visibly;
+repair with an explicit cohort before retrying. No trigger invents configuration.
+`assign_invite_experiment(activity, version, allocation)` is a security-invoker SQL
+helper shared by API creation and seeds, with explicit arguments and no history
+rewrite on replay. Runtime assignment update/delete restrictions remain unchanged.

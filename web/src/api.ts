@@ -4,11 +4,13 @@ export interface Identity {
   id: string; displayName: string; generation: number; acquisitionParentId: string | null; acquisitionRootId: string;
   synthetic: boolean; test: boolean;
 }
+export type PolicyReason = 'allowed' | 'creation_disabled' | 'control' | 'host_or_booker_required' | 'assignment_unavailable';
+export interface InviteState { creationEnabled: boolean; allowed: boolean; reason: PolicyReason }
 export interface Assignment { experiment: 'group_invites_v1'; version: string; treatmentPercent: number; variant: 'treatment' | 'control'; assignedAt: string }
 export interface Activity {
   id: string; hostId: string; title: string; description: string; meetingLocation: string; startsAt: string; timezone: string;
   capacity: number; confirmedCount: number; remainingSeats: number; priceMinor: number; currency: string; version: number;
-  inviteCreationEnabled?: boolean; assignment?: Assignment; status: string; planId: string; participants?: { id: string; displayName: string }[];
+  invitePolicy?: InviteState; assignment?: Assignment | null; status: string; planId: string; participants?: { id: string; displayName: string }[];
 }
 export class ApiError extends Error {
   constructor(public code: string, message: string, public retryable: boolean, public requestId: string) {
@@ -61,22 +63,42 @@ export function parseActivity(value: unknown): Activity {
       if (typeof participant.id !== 'string' || typeof participant.displayName !== 'string') throw new Error('The API returned invalid participants.');
     }
   }
-  if (data.inviteCreationEnabled !== undefined && typeof data.inviteCreationEnabled !== 'boolean') throw new Error('The API returned an invalid invitation switch.');
-  if (data.assignment !== undefined) {
-    const assignment = record(data.assignment);
-    if (assignment.experiment !== 'group_invites_v1' || typeof assignment.version !== 'string' || !assignment.version.trim() ||
-      !Number.isInteger(assignment.treatmentPercent) || Number(assignment.treatmentPercent) < 0 || Number(assignment.treatmentPercent) > 100 ||
-      !['treatment', 'control'].includes(String(assignment.variant)) || typeof assignment.assignedAt !== 'string' || !Number.isFinite(Date.parse(assignment.assignedAt))) {
-      throw new Error('The API returned an invalid invitation assignment.');
-    }
-  }
   return data as unknown as Activity;
 }
-export type ActivityDetail = Activity & { participants: NonNullable<Activity['participants']> };
+export type ActivityDetail = Activity & { participants: NonNullable<Activity['participants']>; invitation: { assignment: Assignment | null; policy: InviteState } };
 export function parseActivityDetail(value: unknown): ActivityDetail {
   const activity = parseActivity(value);
   if (!activity.participants) throw new Error('The API returned invalid participants.');
-  return { ...activity, participants: activity.participants };
+  let invitation: ActivityDetail['invitation'];
+  try { invitation = parseInvitation(record(value)); }
+  catch {
+    invitation = { assignment: null, policy: { creationEnabled: false, allowed: false, reason: 'assignment_unavailable' } };
+  }
+  return { ...activity, assignment: invitation.assignment, invitePolicy: invitation.policy, participants: activity.participants, invitation };
+}
+function parseInvitation(data: Record<string, unknown>): ActivityDetail['invitation'] {
+  const raw = data.assignment;
+  let assignment: Assignment | null = null;
+  if (raw !== null) {
+    const a = record(raw);
+    if (a.experiment !== 'group_invites_v1' || typeof a.version !== 'string' || !a.version.trim() || a.version.length > 100 ||
+      !Number.isInteger(a.treatmentPercent) || Number(a.treatmentPercent) < 0 || Number(a.treatmentPercent) > 100 ||
+      (a.variant !== 'treatment' && a.variant !== 'control') || typeof a.assignedAt !== 'string' || !Number.isFinite(Date.parse(a.assignedAt))) {
+      throw new Error('Invalid invitation assignment.');
+    }
+    assignment = a as unknown as Assignment;
+  }
+  const p = record(data.invitePolicy);
+  if (typeof p.creationEnabled !== 'boolean' || typeof p.allowed !== 'boolean' ||
+    (p.reason !== 'allowed' && p.reason !== 'creation_disabled' && p.reason !== 'control' && p.reason !== 'host_or_booker_required' && p.reason !== 'assignment_unavailable') ||
+    p.allowed !== (p.reason === 'allowed')) throw new Error('Invalid invitation policy.');
+  let consistent: boolean;
+  if (!assignment) consistent = p.reason === 'assignment_unavailable';
+  else if (!p.creationEnabled) consistent = p.reason === 'creation_disabled';
+  else if (assignment.variant === 'control') consistent = p.reason === 'control';
+  else consistent = p.reason === 'allowed' || p.reason === 'host_or_booker_required';
+  if (!consistent) throw new Error('Invitation policy contradicts assignment or switch.');
+  return { assignment, policy: p as unknown as InviteState };
 }
 export function parseList<T>(value: unknown, parse: (item: unknown) => T): T[] {
   if (!Array.isArray(value)) throw new Error('The API returned an unexpected list.');

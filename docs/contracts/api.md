@@ -49,8 +49,8 @@ At the mobile guest-flow implementation boundary (PLANS.md §3.3), choose a supp
 - `POST /api/identities`: `{displayName, journeyId, platform, synthetic?, test?}`. `journeyId` is a UUID; platform is `web` or `mobile`; markers are booleans defaulting to false. Returns 201 `{id, displayName, generation: 0, acquisitionParentId: null, acquisitionRootId: id, synthetic, test}`. Signup ancestry and the server `identity_created` event persist atomically. Unknown fields (including invented referral ancestry) are rejected.
 - `GET /api/identities`: all selectable demo identities, ordered by creation. This deliberately public demo directory exposes display names and ancestry IDs, never contact data. `GET /api/identities/:id` restores the same identity or returns `NOT_FOUND`.
 - `POST /api/activities`: requires an existing `X-Demo-Actor-Id`. Body `{title, description, meetingLocation, startsAt, timezone, capacity, priceMinor, currency}`. Trimmed text limits are 120/2000/300 characters. `startsAt` is a valid absolute ISO calendar timestamp with seconds and `Z` or an explicit offset, normalized to UTC. `timezone` is an IANA zone (`UTC` also accepted). Input is resolved case-insensitively to a name supported by PostgreSQL and its display-timezone constraint, then checked by the backend Intl formatter before insertion. For example, `africa/lagos` is stored and returned as `Africa/Lagos`; unsupported zones return 400 `INVALID_REQUEST`, retryable false, with timezone guidance. Capacity is an integer in 1…2147483647; price is an integer in 0…2147483647 minor units; currency is an explicit uppercase three-letter code. This slice allows inspection of past activities too; booking eligibility is #3. Unknown fields are rejected. Returns 201 authoritative details.
-- `GET /api/activities`: discovery list with `{id, hostId, title, description, meetingLocation, startsAt, timezone, status, capacity, confirmedCount, remainingSeats, priceMinor, currency, version, planId}`. `GET /api/activities/:id` adds `participants: [{id, displayName}]` from confirmed booking rows, excluding contacts. New activities have scheduled status, version 1, zero confirmed count and capacity remaining. PostgreSQL creates one plan per activity; host creation creates no booking.
-- `POST /api/events`: accepts only schema-1 client `activity_viewed` in this slice. Required `{id, schemaVersion: 1, name: 'activity_viewed', source: 'client', occurredAt, platform, activityId}`; optional `{actorId, journeyId, planId, synthetic, test}`. At least selected actor or journey UUID is required. Any actor must match `X-Demo-Actor-Id` and exist. Activity must exist; supplied plan must belong to it. The server derives plan/generation and inherits selected-identity and activity-host markers, including anonymous seed views (a client cannot clear them). Invalid source/name, fabricated rail/generation, unknown fields, malformed timestamps/UUIDs and non-boolean markers are rejected. Returns 202 `{id, accepted: true}` for a new event, or `accepted: false` for an existing event ID, leaving the first record untouched. Only successful ingestion means durable receipt. Once details render, the web captures the event ID, actor, activity/plan, journey and occurrence time. App-owned delivery continues through ordinary in-app navigation and identity changes; every attempt is bounded to eight seconds. Failures remain visible in the app with a retry using the original ID, payload and actor header; server deduplication handles uncertain receipts.
+- `GET /api/activities`: discovery list with `{id, hostId, title, description, meetingLocation, startsAt, timezone, status, capacity, confirmedCount, remainingSeats, priceMinor, currency, version, planId, assignment}`. `GET /api/activities/:id` adds `participants: [{id, displayName}]` from confirmed booking rows, excluding contacts, plus `invitePolicy` describing the selected actor’s current creation eligibility. New activities have scheduled status, version 1, zero confirmed count and capacity remaining. PostgreSQL creates one plan per activity; host creation creates no booking.
+- `POST /api/events`: accepts schema-1 client `activity_viewed` and `experiment_exposed`. Exposure additionally requires `displayedInviteState` as defined below. Required `{id, schemaVersion: 1, name: 'activity_viewed' | 'experiment_exposed', source: 'client', occurredAt, platform, activityId}`; optional `{actorId, journeyId, planId, synthetic, test}`. At least selected actor or journey UUID is required. Any actor must match `X-Demo-Actor-Id` and exist. Activity must exist; supplied plan must belong to it. The server derives plan/generation and inherits selected-identity and activity-host markers, including anonymous seed views (a client cannot clear them). Invalid source/name, fabricated rail/generation, unknown fields, malformed timestamps/UUIDs and non-boolean markers are rejected. Returns 202 `{id, accepted: true}` for a new event, or `accepted: false` for an existing event ID, leaving the first record untouched. Only successful ingestion means durable receipt. Once details render, the web captures the event ID, actor, activity/plan, journey and occurrence time. App-owned delivery continues through ordinary in-app navigation and identity changes; every attempt is bounded to eight seconds. Failures remain visible in the app with a retry using the original ID, payload and actor header; server deduplication handles uncertain receipts.
 
 Both boundaries validate inputs; PostgreSQL constraints additionally protect capacity, count bounds, timezone, price and currency. Runtime grants allow identity display-name updates, but no ancestry update/user deletion, signup-attribution update/delete, event update/delete, plan mutation or booking writes. Migration credentials alone run seeds. The read-only confirmed booking schema is established here; #3 adds the authoritative booking transaction, idempotency, attribution and outbox, plus its narrowly required runtime grants.
 
@@ -71,22 +71,63 @@ Web storage keys are versioned (`velio.actor.v1`, `velio.journey.v1`). Identitie
 
 Activity list/details include `assignment`: `{ experiment: "group_invites_v1", version,
 variant: "treatment" | "control", treatmentPercent, assignedAt }`. Details and creation
-responses also include `inviteCreationEnabled`, the current global creation switch.
-Assignments are stored before any activity response and are independent of exposure.
+responses include `invitePolicy`: `{ assignment, creationEnabled, allowed, reason }`.
+The optional actor header selects the policy's actor. Unknown actors receive 401
+`IDENTITY_REQUIRED`, malformed actor UUIDs receive 400 `INVALID_REQUEST`, and known
+ineligible actors receive the policy result. Missing actors may browse and book after
+selecting an identity. Creation responses evaluate the host's policy.
 
-`GET /api/activities/:id/invite-eligibility` accepts the optional demo actor header and
-returns `{ assignment, creationEnabled, allowed, reason }`. Reasons are `allowed`,
-`creation_disabled`, `control`, and `host_or_booker_required`. Only hosts and confirmed
-bookers in treatment may create while the switch is on. Future invitation creation
-handlers must call `requireInviteCreation` with the server switch at the write boundary;
-this read endpoint is presentation, not authorization for a later write. Resolution
-and claim handlers must not call the creation policy. Ordinary booking remains available
-in both groups. Current responses do not promise seat availability or trust verification.
+Every committed activity must have one assignment. Migration 005 backfills activities
+that predate assignment storage. Corrective migration 006 validates that invariant
+and adds a deferred reverse foreign key, so later writers must explicitly supply an
+assignment in the activity transaction. It never chooses implicit trigger defaults.
+An incomplete legacy database fails migration 006 visibly and requires an explicit
+cohort decision/repair. Independent checks enforce hash/bucket and bucket/variant.
+Runtime credentials may insert/read assignments but cannot rewrite/delete them.
 
-The client event endpoint additionally accepts schema 1 `experiment_exposed`, with the
-same shape as `activity_viewed`. Send it after rendering the assigned invitation
-experience, never from a list GET or activity creation request. Retry with the same
-event ID. Server ingestion derives assignment context from storage and rejects extra
-client assignment fields. Activity views and booking events carry the same trusted
-assignment context. Runtime credentials can read/insert assignments but cannot update
-or delete them.
+Reads use left joins: administrative damage does not hide activities. A missing
+assignment is represented by `assignment: null` with an `assignment_unavailable`
+policy, not a misleading activity 404. Ordinary booking remains independent. Web
+validates assignment and policy fields; missing/malformed invitation data renders
+unavailable while activity details and booking stay usable.
+
+`GET /api/activities/:id/invite-eligibility` returns the same policy result. Reasons
+are `allowed`, `creation_disabled`, `control`, `host_or_booker_required`, and
+`assignment_unavailable`. Missing assignments fail closed. Otherwise creation requires
+the global switch, treatment assignment and a host/confirmed-booker actor. The app
+requires explicit invite configuration and binds `createInvitePolicy` once; future
+creation handlers must call its `requireCreation` method at the write boundary.
+The read endpoint is presentation, not authorization for a later write. Intended
+future resolution/claim handling remains independent of the creation-only switch.
+Those routes are not implemented by this ticket.
+
+`POST /api/events` accepts only strict string names `activity_viewed` and
+`experiment_exposed`. Exposure additionally requires `displayedInviteState`:
+`{ enabled: boolean, creationEnabled: boolean, reason: <policy reason> }`. This is
+client-reported display context, stored under that name separately from authoritative
+`context.assignment` derived from PostgreSQL. It describes what actually rendered,
+not what the current switch would allow when a delayed retry reaches the server.
+Invalid/missing display fields and non-string names (including arrays) are rejected.
+Activity views cannot supply exposure display state. Clients cannot supply assignment.
+Activity-view and resolved booking events carry authoritative assignment context;
+booking requests with invalid activity IDs, nonexistent activities, or damaged missing
+assignments carry null instead of a fabricated cohort. Malformed booking requests
+that resolve an existing assigned activity retain its authoritative assignment.
+
+Exposure is captured after the invitation section renders, including disabled and
+unavailable states. No event is emitted merely by listing, creating, or loading an
+activity. In one app session, unchanged state for the same activity and actor (or
+anonymous journey) is suppressed across booking/details refreshes and navigation.
+A changed displayed state gets a new ID; delivery retries keep the original ID,
+payload and actor header. Identity changes have independent observations. Browser
+reload starts a new session; storage/closure delivery remains best effort.
+
+Ingestion deduplicates exact event IDs. For analytical reach, use the first exposure
+per activity/experiment-version and resolved actor, falling back to journey when no
+actor is resolved; unresolved cross-device identities remain a limitation. Display
+state breakdowns may keep the first per distinct reported `(enabled, creationEnabled,
+reason)` within that observation unit, rather than count refreshes as new people.
+State transitions remain inspectable. Pre-correction events without display context
+are unknown display state, never inferred from today's switch. All assigned activities,
+including holdout and those without exposure, remain the experiment denominator;
+exposure filtering must not condition the activity-level outcome comparison.

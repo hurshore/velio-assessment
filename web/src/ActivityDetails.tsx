@@ -1,12 +1,13 @@
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { SeatBooking } from './SeatBooking';
 import type { RenderedViewEvent, ViewDelivery } from './view-delivery';
-import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, message, parseActivityDetail, type ActivityDetail } from './api';
 
 export function ActivityDetails({ id, actorId, journeyId, close, delivery }: { delivery: ViewDelivery; id: string; actorId: string; journeyId: string; close: () => void }) {
   const section = useRef<HTMLElement>(null);
   useEffect(() => { section.current?.focus(); }, []);
   const [detail, setDetail] = useState<ActivityDetail | null>(null);
+  const [detailActor, setDetailActor] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -18,15 +19,16 @@ export function ActivityDetails({ id, actorId, journeyId, close, delivery }: { d
     pending.current = controller;
     setLoading(true); setError('');
     try {
-      const data = await api(`/activities/${id}`, { signal: controller.signal });
+      const data = await api(`/activities/${id}`, { actorId: actorId || undefined, signal: controller.signal });
       if (controller.signal.aborted) return;
       const activity = parseActivityDetail(data);
       setDetail(activity);
+      setDetailActor(actorId);
       if (renewView) setViewVersion(value => value + 1);
     } catch (error) {
       if (!controller.signal.aborted) setError(`Could not refresh activity details. ${message(error)}`);
     } finally { if (!controller.signal.aborted) setLoading(false); }
-  }, [id]);
+  }, [id, actorId]);
   useEffect(() => {
     void loadDetails(true);
     return () => pending.current?.abort();
@@ -37,7 +39,7 @@ export function ActivityDetails({ id, actorId, journeyId, close, delivery }: { d
     {!detail && !error ? <p role="status">Loading activity details…</p> : null}
     {error ? <p role="alert">{error}</p> : null}
     <button disabled={loading} onClick={() => setAttempt(value => value + 1)}>Refresh details</button>
-    {detail ? <RenderedActivity refresh={() => void loadDetails(false)} delivery={delivery} key={`${detail.id}:${actorId}:${viewVersion}`} activity={detail} actorId={actorId} journeyId={journeyId} /> : null}
+    {detail && detail.id === id && detailActor === actorId ? <RenderedActivity refresh={() => void loadDetails(false)} delivery={delivery} key={`${detail.id}:${actorId}:${viewVersion}`} activity={detail} actorId={actorId} journeyId={journeyId} /> : null}
   </section>;
 }
 function RenderedActivity({ activity, actorId, journeyId, delivery, refresh }: { delivery: ViewDelivery; activity: ActivityDetail; actorId: string; journeyId: string; refresh: () => void }) {
@@ -46,10 +48,6 @@ function RenderedActivity({ activity, actorId, journeyId, delivery, refresh }: {
   useEffect(() => {
     delivery.capture(event, activity.title);
   }, [delivery, event, activity.title]);
-  const [exposure] = useState<RenderedViewEvent>(() => ({ ...event, id: crypto.randomUUID(), name: 'experiment_exposed' }));
-  useEffect(() => {
-    if (activity.assignment) delivery.capture(exposure, `${activity.title} invitation experience`);
-  }, [delivery, exposure, activity.assignment, activity.title]);
   const time = new Intl.DateTimeFormat(undefined, { dateStyle: 'full', timeStyle: 'short', timeZone: activity.timezone }).format(new Date(activity.startsAt));
   return <>
     <h3>{activity.title}</h3>
@@ -64,14 +62,36 @@ function RenderedActivity({ activity, actorId, journeyId, delivery, refresh }: {
     </dl>
     <p className="hint">Availability is a server snapshot. Refresh details for the latest counts.</p>
     <p className="hint">Shared plan: {activity.planId}</p>
-    {activity.assignment ? <section aria-label="Invitation experience">
-      <h3>Invitations</h3>
-      <p>{activity.assignment.variant === 'treatment' && activity.inviteCreationEnabled === false ? 'New invitations are temporarily unavailable. You can still book a seat.' : activity.assignment.variant === 'treatment' ? 'This activity is assigned to the invitation experience.' : 'This activity supports ordinary booking. New invitations are unavailable.'}</p>
-      <p className="hint">Invitations do not reserve seats. Invitation sharing is coming in a later update.</p>
-    </section> : null}
+    <InvitationExperience activity={activity} actorId={actorId} journeyId={journeyId} delivery={delivery} />
     <SeatBooking activity={activity} actorId={actorId} journeyId={journeyId} refresh={refresh} />
     <h3>Confirmed participants</h3>
     {activity.participants.length ? <ul>{activity.participants.map(user => <li key={user.id}>{user.displayName}</li>)}</ul> :
       <p>No confirmed participants yet. Hosting does not consume a seat.</p>}
   </>;
+}
+
+function invitationCopy(reason: ActivityDetail['invitation']['policy']['reason']): string {
+  switch (reason) {
+    case 'allowed': return 'This activity is assigned to the invitation experience.';
+    case 'creation_disabled': return 'New invitations are temporarily unavailable. You can still book a seat.';
+    case 'control': return 'This activity supports ordinary booking. New invitations are unavailable.';
+    case 'host_or_booker_required': return 'Book a seat or host this activity to create invitations.';
+    case 'assignment_unavailable': return 'Invitation availability could not be verified. You can still book a seat.';
+  }
+}
+function InvitationExperience({ activity, actorId, journeyId, delivery }: { activity: ActivityDetail; actorId: string; journeyId: string; delivery: ViewDelivery }) {
+  const headingId = useId();
+  const { policy, assignment } = activity.invitation;
+  const { allowed, creationEnabled, reason } = policy;
+  const signature = JSON.stringify([assignment?.experiment, assignment?.version, assignment?.variant, allowed, creationEnabled, reason]);
+  useEffect(() => {
+    delivery.captureExposure({ id: crypto.randomUUID(), schemaVersion: 1, name: 'experiment_exposed', source: 'client', platform: 'web',
+      occurredAt: new Date().toISOString(), actorId: actorId || undefined, journeyId, activityId: activity.id, planId: activity.planId,
+      displayedInviteState: { enabled: allowed, creationEnabled, reason } }, `${activity.title} invitation experience`, signature);
+  }, [delivery, actorId, journeyId, activity.id, activity.planId, activity.title, allowed, creationEnabled, reason, signature]);
+  return <section aria-labelledby={headingId}>
+    <h3 id={headingId}>Invitations</h3>
+    <p>{invitationCopy(reason)}</p>
+    <p className="hint">Invitations do not reserve seats. Invitation sharing is coming in a later update.</p>
+  </section>;
 }

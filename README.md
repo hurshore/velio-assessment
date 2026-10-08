@@ -101,9 +101,9 @@ activities with version 1 at 50%, without inventing exposure events. Allocation 
 cohort setting, not a guarantee that a small sample will contain that exact percentage.
 
 `INVITE_CREATION_ENABLED=false` disables new creation in all groups. Restart the API
-after changing environment settings. Both groups can still book; future invitation
-resolution/claim routes must honor issued valid codes independently of this switch.
-Upcoming public/vouch creation routes must enforce `requireInviteCreation`, including
+after changing environment settings. Both groups can still book. Future invitation resolution/claim routes are intended
+to honor issued valid codes independently of this switch; those routes are not implemented yet.
+Upcoming public/vouch creation routes must enforce the config-bound `createInvitePolicy(...).requireCreation`, including
 host routes. Sharing endpoints arrive in those tickets; this ticket exposes the policy,
 stable assignment and displayed experience tracking.
 
@@ -116,3 +116,9 @@ on participants and the provisional two-person formed-plan threshold. Attendance
 still unmeasured, and cross-activity social spillovers remain a limitation. A no-invite
 holdout cannot measure invitation open-to-claim conversion; that needs a separate guest
 experience comparison with invitations enabled in both groups.
+
+Assignment integrity is enforced by corrective migration 006 with a deferred foreign
+key. Every writer must supply an explicit assignment before commit; no trigger chooses
+a cohort. Missing assignment/policy reads fail closed for invitation creation while
+ordinary booking remains usable. Exposure display-state and deduplication semantics
+are documented in [the API contract](docs/contracts/api.md#invitation-experiment-issue-4).
