@@ -1,3 +1,4 @@
+import { HostApp } from './HostApp';
 import { useEffect, useState } from 'react';
 
 import { parseReadiness, connectionErrorMessage, unexpectedResponseMessage, type Readiness } from './readiness';
@@ -32,9 +33,9 @@ export function App() {
     return () => { active = false; clearTimeout(timeout); controller.abort(); };
   }, [attempt]);
   return <main>
-    <p className="eyebrow">VELIO / FOUNDATION</p>
-    <h1>Plans start with a connection.</h1>
-    <p>Check the shared API connection before exploring activities.</p>
+    <p className="eyebrow">VELIO / MAKE A PLAN</p>
+    <h1>Make time for good company.</h1>
+    <p>Host something worth showing up for. Explore the details before you commit.</p>
     <section aria-live="polite" aria-label="API connection">
       {connection.status === 'loading' ? <p>Checking API connection…</p> : connection.status === 'error' ? <>
         <h2>Connection unavailable</h2>
@@ -47,5 +48,6 @@ export function App() {
         <small>Request: {connection.requestId}</small>
       </>}
     </section>
+    {connection.status === 'ready' ? <HostApp /> : null}
   </main>;
 }

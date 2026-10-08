@@ -322,11 +322,13 @@ Create a two-seat activity on web -> book one seat -> create a vouch -> preview/
 
 ## 6. Decision log: plan versus implementation
 
-No implementation deviations recorded yet. Add entries when a decision changes, retaining the original reasoning rather than rewriting this plan to imply it was always intended.
+Implementation entries retain the original planned decision and explain changes rather than rewriting the plan to imply they were always intended.
 
 | Date | Planned decision | What changed | Reason and user/measurement impact |
 |---|---|---|---|
-| — | — | — | — |
+| 8 October 2026 | Booking schema/writes arrive with the shared-booking ticket after host activity creation. | #2 establishes the minimal confirmed-booking table and read-only runtime access for participant inspection; #3 owns booking writes, attribution, idempotency, counter updates and outbox. | Participant inspection reads its real future source immediately, avoiding a second mutable list or a placeholder participant model. Hosting creates no membership. |
+| 8 October 2026 | Enter a date/time with an absolute stored start and IANA display timezone. | The web labels date entry as device-local time and previews that same instant in the selected display zone and UTC. | Keeps the conversion explicit without introducing a timezone conversion dependency; non-existent local times are rejected. Booking eligibility checks remain #3. |
+| 8 October 2026 | Record activity views when details render. | #2 captures immutable view context and retains bounded delivery and visible failures at the app level through ordinary navigation and identity changes. | Preserves original IDs/context for retries and server deduplication. As clarified in review, refresh/closure remains best effort; persistent offline telemetry is outside this correction. |
 
 ## Reference checks
 

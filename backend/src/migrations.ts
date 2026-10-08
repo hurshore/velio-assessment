@@ -27,6 +27,7 @@ export async function runMigrations(client: MigrationConnection, directory: stri
     // A second runner fails immediately rather than waiting behind a stuck session.
     const lock = await client.query('SELECT pg_try_advisory_lock(8241001) AS locked');
     if (lock.rows[0]?.locked !== true) throw new Error('Another migration run is active; retry after it finishes.');
+    if (process.env.RUNTIME_DB_USER) await client.query("SELECT set_config('velio.runtime_role', $1, false)", [process.env.RUNTIME_DB_USER]);
     await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
       name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now()
     )`);
