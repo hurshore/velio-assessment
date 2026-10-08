@@ -3,7 +3,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { HostApp } from './HostApp';
 afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); });
-const identity = { id: '11111111-1111-4111-8111-111111111111', displayName: 'Amara', generation: 0, acquisitionParentId: null, acquisitionRootId: '11111111-1111-4111-8111-111111111111', synthetic: false, test: false };
+const identity = { id: '11111111-1111-4111-8111-111111111111', displayName: 'Amara', generation: 0, acquisitionParentId: null, acquisitionRootId: '11111111-1111-4111-8111-111111111111', acquisitionRail: null, synthetic: false, test: false };
 function response(data: unknown) { return new Response(JSON.stringify({ data, requestId: 'ui-test' })); }
 test('selects and persists a clearly labelled demo identity across reloads', async () => {
   vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => Promise.resolve(response(url.endsWith('/identities') ? [identity] : []))));

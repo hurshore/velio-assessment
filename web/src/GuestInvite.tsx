@@ -1,52 +1,69 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ViewDeliveryStatus } from './ViewDeliveryStatus';
 import { ViewDelivery, type RenderedInviteOpenEvent } from './view-delivery';
 import { api, ApiError, appLink, formatPrice, groupedCode, isInviteCode, journey, message, normalizeInviteCode, parseInvitePreview, type InvitePreview } from './api';
 
 type Load = { status: 'idle' } | { status: 'loading' } | { status: 'invalid' } | { status: 'error'; message: string } | { status: 'ready'; preview: InvitePreview };
 
-export function GuestInvite({ initialCode }: { initialCode: string }) {
+// Pushes a history entry and notifies App, which follows the URL through popstate.
+function navigate(path: string) {
+  window.history.pushState(null, '', path);
+  window.dispatchEvent(new PopStateEvent('popstate'));
+}
+const headingFor = (load: Load) => load.status === 'ready' ? 'invite-heading' : load.status === 'error' ? 'invite-error' : 'code-heading';
+
+export function GuestInvite({ code: urlCode }: { code: string }) {
   const [delivery] = useState(() => new ViewDelivery());
   const [journeyId] = useState(journey);
-  const [code, setCode] = useState(() => normalizeInviteCode(initialCode));
-  const [entry, setEntry] = useState(initialCode);
+  const code = normalizeInviteCode(urlCode);
+  const [entry, setEntry] = useState(urlCode);
   const [entryError, setEntryError] = useState('');
+  const [shownCode, setShownCode] = useState(urlCode);
+  // The URL is the source of truth: Back/Forward replace the entry with the code being shown.
+  if (shownCode !== urlCode) { setShownCode(urlCode); setEntry(urlCode); setEntryError(''); }
   const [load, setLoad] = useState<Load>({ status: code ? 'loading' : 'idle' });
   const [attempt, setAttempt] = useState(0);
-  const resolve = useCallback((signal: AbortSignal) => {
+  const lastRequest = useRef<string | null>(null);
+  const focusOnSettle = useRef(false);
+  useEffect(() => {
+    const request = `${code}:${attempt}`;
+    // Only a change after the first load is user navigation; StrictMode re-runs keep the same key.
+    if (lastRequest.current !== null && lastRequest.current !== request) focusOnSettle.current = true;
+    lastRequest.current = request;
+    if (!code) { setLoad({ status: 'idle' }); return; }
+    const controller = new AbortController();
     setLoad({ status: 'loading' });
-    api(`/invites/${encodeURIComponent(code)}`, { signal }).then(data => {
-      if (!signal.aborted) setLoad({ status: 'ready', preview: parseInvitePreview(data) });
+    api(`/invites/${encodeURIComponent(code)}`, { signal: controller.signal }).then(data => {
+      if (!controller.signal.aborted) setLoad({ status: 'ready', preview: parseInvitePreview(data) });
     }).catch(error => {
-      if (signal.aborted) return;
+      if (controller.signal.aborted) return;
       setLoad(error instanceof ApiError && error.code === 'INVALID_INVITE' ? { status: 'invalid' } : { status: 'error', message: message(error) });
     });
-  }, [code]);
-  useEffect(() => {
-    if (!code) return;
-    const controller = new AbortController();
-    resolve(controller.signal);
     return () => controller.abort();
-  }, [code, attempt, resolve]);
+  }, [code, attempt]);
+  useEffect(() => {
+    if (!focusOnSettle.current || load.status === 'loading') return;
+    focusOnSettle.current = false;
+    document.getElementById(headingFor(load))?.focus();
+  }, [load]);
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!isInviteCode(entry)) { setEntryError('Codes have 12 letters and numbers, for example ABCD-2345-EFGH.'); return; }
     const next = normalizeInviteCode(entry);
     setEntryError('');
-    window.history.pushState(null, '', `/invite/${next}`);
     if (next === code) setAttempt(value => value + 1);
-    else setCode(next);
+    else navigate(`/invite/${next}`);
   }
   const ready = load.status === 'ready' ? load.preview : null;
   return <>
-    {load.status === 'loading' ? <p role="status">Loading your invitation…</p> : null}
+    <p role="status" className="live">{load.status === 'loading' ? 'Loading your invitation…' : ''}</p>
     {load.status === 'error' ? <section aria-live="polite">
-      <p role="alert">We could not load this invitation. {load.message}</p>
+      <p role="alert" id="invite-error" tabIndex={-1}>We could not load this invitation. {load.message}</p>
       <button onClick={() => setAttempt(value => value + 1)}>Try again</button>
     </section> : null}
     {ready ? <RenderedInvite key={`${ready.code}:${ready.state}`} preview={ready} journeyId={journeyId} delivery={delivery} /> : null}
     {!ready ? <section aria-labelledby="code-heading">
-      <h2 id="code-heading">{load.status === 'invalid' ? 'Invitation not found' : 'Enter an invitation code'}</h2>
+      <h2 id="code-heading" tabIndex={-1}>{load.status === 'invalid' ? 'Invitation not found' : 'Enter an invitation code'}</h2>
       {load.status === 'invalid' ? <p role="alert">This invitation code is not valid. Check the code and try again.</p> : null}
       <form onSubmit={submit}>
         <label>Invitation code<input value={entry} onChange={event => setEntry(event.target.value)} autoCapitalize="characters" autoComplete="off" spellCheck={false} maxLength={20} /></label>
@@ -73,7 +90,7 @@ function RenderedInvite({ preview, journeyId, delivery }: { preview: InvitePrevi
   const time = new Intl.DateTimeFormat(undefined, { dateStyle: 'full', timeStyle: 'short', timeZone: activity.timezone }).format(new Date(activity.startsAt));
   return <section aria-labelledby="invite-heading" className="guest-invite">
     <p className="eyebrow">{inviter.displayName} invited you{inviter.role === 'host' ? ' to their activity' : ''}</p>
-    <h2 id="invite-heading">{activity.title}</h2>
+    <h2 id="invite-heading" tabIndex={-1}>{activity.title}</h2>
     <p className="hint">This is a public link: anyone who has it can view and claim an open seat. It is not a personal vouch, and it does not hold a seat for you.</p>
     {preview.state !== 'valid' ? <p role="alert">{stateCopy[preview.state]}</p> : null}
     <p className="description">{activity.description}</p>

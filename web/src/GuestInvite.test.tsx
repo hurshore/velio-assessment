@@ -95,3 +95,52 @@ test('the app-opening link carries the persistent journey so an app claim can jo
   const link = await screen.findByRole('link', { name: 'Open in the Velio app' });
   expect(link.getAttribute('href')).toBe(`velio://invite/ABCD2345EFGH?journey=${localStorage.getItem('velio.journey.v1')}`);
 });
+
+test('browser Back and Forward keep the guest page in step with the URL, and navigation moves focus to the result', async () => {
+  visit('/invite/ZZZZZZZZZZZZ', async code => code === 'ABCD2345EFGH' ? ok(preview) : invalid());
+  await screen.findByText(/This invitation code is not valid/);
+  expect(document.activeElement).toBe(document.body);
+  fireEvent.change(screen.getByLabelText('Invitation code'), { target: { value: 'ABCD2345EFGH' } });
+  fireEvent.click(screen.getByRole('button', { name: 'View invitation' }));
+  const heading = await screen.findByRole('heading', { name: 'Supper club' });
+  await waitFor(() => expect(document.activeElement).toBe(heading));
+  window.history.back();
+  expect(await screen.findByText(/This invitation code is not valid/)).toBeTruthy();
+  expect(window.location.pathname).toBe('/invite/ZZZZZZZZZZZZ');
+  expect((screen.getByLabelText('Invitation code') as HTMLInputElement).value).toBe('ZZZZZZZZZZZZ');
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Invitation not found' })));
+  window.history.forward();
+  expect(await screen.findByRole('heading', { name: 'Supper club' })).toBeTruthy();
+  expect(window.location.pathname).toBe('/invite/ABCD2345EFGH');
+});
+
+test('a non-retryable open rejection is reported without offering a retry that cannot succeed', async () => {
+  window.history.replaceState(null, '', '/invite/ABCD2345EFGH');
+  vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => url.endsWith('/events')
+    ? Promise.resolve(invalid())
+    : Promise.resolve(ok(preview))));
+  render(<App />);
+  expect(await screen.findByText(/could not be saved for Supper club invitation/)).toBeTruthy();
+  expect(screen.getByText(/This invitation code is not valid/, { selector: '[role=alert]' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Retry view tracking' })).toBeNull();
+});
+
+test('a preview missing contract fields is rejected rather than rendered from a partial response', async () => {
+  for (const broken of [{ ...preview, createdAt: undefined }, { ...preview, activity: { ...preview.activity, planId: undefined } },
+    { ...preview, inviter: { displayName: '', role: 'host' } }, { ...preview, activity: { ...preview.activity, remainingSeats: 9 } }]) {
+    cleanup();
+    visit('/invite/ABCD2345EFGH', async () => ok(broken));
+    expect(await screen.findByText(/unexpected/)).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Supper club' })).toBeNull();
+  }
+});
+
+test('loading progress is announced through a status region that stays mounted', async () => {
+  let finish!: (response: Response) => void;
+  visit('/invite/ABCD2345EFGH', () => new Promise<Response>(resolve => { finish = resolve; }));
+  const region = screen.getByText('Loading your invitation…');
+  finish(ok(preview));
+  await screen.findByRole('heading', { name: 'Supper club' });
+  expect(region.isConnected).toBe(true);
+  expect(region.textContent).toBe('');
+});

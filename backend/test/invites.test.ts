@@ -17,9 +17,11 @@ let owner: pg.Pool;
 let runtime: pg.Pool;
 let server: ReturnType<ReturnType<typeof createApp>['listen']>;
 let base: string;
+const failures: unknown[] = [];
 async function start(invites: InviteConfig) {
   if (server) await new Promise<void>(resolve => server.close(() => resolve()));
-  server = createApp({ invites, postgres: runtime, redis: { ping: async () => 'PONG' } }, 'http://localhost:5173').listen(0, '127.0.0.1');
+  server = createApp({ invites, postgres: runtime, redis: { ping: async () => 'PONG' } }, 'http://localhost:5173', (_context, error) => { failures.push(error); })
+    .listen(0, '127.0.0.1');
   await once(server, 'listening');
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`;
 }
@@ -413,7 +415,7 @@ test('issued links keep resolving and claiming after creation is switched off', 
   } finally { await start({ version: 'invites', treatmentPercent: 100, creationEnabled: true }); }
 });
 
-test('claims at the expiry boundary are accepted before it and rejected at or after it', async () => {
+test('claims are accepted shortly before expiry and rejected after it', async () => {
   const host = (await identity()).id;
   const listing = await activity(host, 3);
   const { code, id } = (await share(listing.id, host)).data;
@@ -522,4 +524,103 @@ test('invite signups carry experiment context and a cancelled activity link does
   assert.equal(cancelled.status, 409);
   assert.equal(cancelled.error.code, 'ACTIVITY_UNAVAILABLE');
   assert.equal((await owner.query('SELECT count(*)::int AS n FROM users WHERE acquisition_invite_id=$1', [id])).rows[0].n, 1);
+});
+
+test('creation racing the activity start returns ACTIVITY_STARTED, never a technical error', async () => {
+  const host = (await identity()).id;
+  const listing = await activity(host);
+  await owner.query("UPDATE activities SET starts_at=clock_timestamp() + interval '150 milliseconds' WHERE id=$1", [listing.id]);
+  const outcomes: { status: number; code?: string }[] = [];
+  const deadline = Date.now() + 1500;
+  while (Date.now() < deadline && !outcomes.some(outcome => outcome.status === 409)) {
+    const result = await share(listing.id, host);
+    outcomes.push({ status: result.status, code: result.error?.code });
+  }
+  assert.ok(outcomes.every(outcome => outcome.status === 201 || (outcome.status === 409 && outcome.code === 'ACTIVITY_STARTED')), JSON.stringify(outcomes));
+  assert.ok(outcomes.some(outcome => outcome.status === 409));
+});
+
+test('a missing plan is reported as its own cause rather than a code collision', async () => {
+  const host = (await identity()).id;
+  const listing = await activity(host);
+  await owner.query('DELETE FROM plans WHERE activity_id=$1', [listing.id]);
+  failures.length = 0;
+  const result = await share(listing.id, host);
+  assert.equal(result.status, 500);
+  assert.equal(failures.length, 1);
+  assert.match(String((failures[0] as Error).message), /plan/i);
+  assert.doesNotMatch(String((failures[0] as Error).message), /unique invite code/);
+});
+
+test('an organic guest claiming through a synthetic inviter inherits trusted markers on every invite event', async () => {
+  const host = (await identity({ test: false })).id;
+  const listing = await activity(host);
+  const inviter = (await identity({ synthetic: true, test: true })).id;
+  assert.equal((await book(listing.id, inviter)).status, 201);
+  const { code, id: inviteId } = (await share(listing.id, inviter)).data;
+  const guest = (await identity({ test: false })).id;
+  const journeyId = randomUUID();
+  assert.equal((await request('/events', opened(code, journeyId, 'valid'))).status, 202);
+  assert.equal((await claim(code, guest, randomUUID(), journeyId)).status, 201);
+  const signup = await identity({ test: false, inviteCode: code }, journeyId);
+  assert.deepEqual([signup.synthetic, signup.test], [true, true]);
+  const events = (await owner.query('SELECT name,synthetic,test FROM analytics_events WHERE invite_id=$1 AND name <> $2', [inviteId, 'invite_created'])).rows;
+  for (const name of ['invite_opened', 'booking_attempted', 'invite_claim_attempted', 'booking_succeeded', 'spot_claimed', 'booking_request_outcome', 'identity_created']) {
+    assert.ok(events.some(event => event.name === name), `${name} missing`);
+  }
+  assert.ok(events.every(event => event.synthetic && event.test), JSON.stringify(events));
+  // A synthetic host likewise marks an organic inviter's link events, including the signup event.
+  const labelledHost = (await identity({ synthetic: true, test: true })).id;
+  const hosted = await activity(labelledHost);
+  const organicBooker = (await identity({ test: false })).id;
+  assert.equal((await book(hosted.id, organicBooker)).status, 201);
+  const hostedLink = (await share(hosted.id, organicBooker)).data;
+  const hostedSignup = await identity({ test: false, inviteCode: hostedLink.code });
+  assert.deepEqual([hostedSignup.synthetic, hostedSignup.test], [false, false]);
+  const [signupEvent] = (await owner.query("SELECT synthetic,test FROM analytics_events WHERE actor_id=$1 AND name='identity_created'", [hostedSignup.id])).rows;
+  assert.deepEqual([signupEvent.synthetic, signupEvent.test], [true, true]);
+});
+
+test('claim identity is validated before the code, with claim wording and the request platform on invalid outcomes', async () => {
+  const missing = await request('/invites/ZZZZZZZZZZZZ/claims', { platform: 'mobile', journeyId: randomUUID() }, undefined, randomUUID());
+  assert.equal(missing.status, 401);
+  assert.equal(missing.error.code, 'IDENTITY_REQUIRED');
+  assert.match(missing.error.message, /claim/);
+  const unknown = await request('/invites/ZZZZZZZZZZZZ/claims', { platform: 'mobile', journeyId: randomUUID() }, randomUUID(), randomUUID());
+  assert.equal(unknown.status, 401);
+  const host = (await identity()).id;
+  const listing = await activity(host);
+  const { code, id: inviteId } = (await share(listing.id, host)).data;
+  const guest = (await identity()).id;
+  const keyless = await request(`/invites/${code}/claims`, { platform: 'mobile', journeyId: randomUUID() }, guest);
+  assert.equal(keyless.status, 400);
+  const [outcome] = (await owner.query("SELECT platform,invite_id,activity_id,context FROM analytics_events WHERE context->>'requestId'=$1", [keyless.requestId])).rows;
+  assert.deepEqual([outcome.platform, outcome.invite_id, outcome.activity_id, outcome.context.platformKnown, outcome.context.operation],
+    ['mobile', inviteId, listing.id, true, 'claim_invite']);
+  const directKeyless = await request(`/activities/${listing.id}/bookings`, { platform: 'mobile', journeyId: randomUUID() }, guest);
+  const [direct] = (await owner.query("SELECT platform,context FROM analytics_events WHERE context->>'requestId'=$1", [directKeyless.requestId])).rows;
+  assert.deepEqual([direct.platform, direct.context.platformKnown], ['mobile', true]);
+});
+
+test('started, completed, cancelled and expired links mean the same thing for preview, signup and claim', async () => {
+  const host = (await identity()).id;
+  const expectations = [
+    ['started', "UPDATE activities SET starts_at=now() - interval '1 minute' WHERE id=$1", 409, 'ACTIVITY_STARTED'],
+    ['completed', "UPDATE activities SET status='completed' WHERE id=$1", 409, 'ACTIVITY_STARTED'],
+    ['cancelled', "UPDATE activities SET status='cancelled' WHERE id=$1", 409, 'ACTIVITY_UNAVAILABLE'],
+  ] as const;
+  for (const [scenario, sql, status, code] of expectations) {
+    const listing = await activity(host);
+    const { code: inviteCode } = (await share(listing.id, host)).data;
+    const recovered = (await identity()).id;
+    assert.equal((await claim(inviteCode, recovered)).status, 201);
+    await owner.query(sql, [listing.id]);
+    assert.equal((await request(`/invites/${inviteCode}`)).data.state, scenario === 'completed' ? 'started' : scenario);
+    const signup = await request('/identities', { displayName: 'Late guest', journeyId: randomUUID(), platform: 'mobile', inviteCode });
+    assert.deepEqual([signup.status, signup.error?.code], [status, code], scenario);
+    const claimed = await claim(inviteCode, (await identity()).id);
+    assert.deepEqual([claimed.status, claimed.error?.code], [status, code], scenario);
+    // An existing member still recovers their seat whatever the link's state.
+    assert.equal((await claim(inviteCode, recovered)).status, 200);
+  }
 });

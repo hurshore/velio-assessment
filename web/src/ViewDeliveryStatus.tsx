@@ -13,5 +13,9 @@ export function ViewDeliveryStatus({ delivery }: { delivery: ViewDelivery }) {
       <p className="hint">Retry saves the original view, even if you have changed identities or activities.</p>
       <button onClick={() => delivery.retry(entry.event.id)}>Retry view tracking</button>
     </div>)}
+    {entries.filter(entry => entry.status === 'rejected').map(entry => <div key={entry.event.id}>
+      <p role="alert">View tracking could not be saved for {entry.title}: {entry.error}</p>
+      <p className="hint">The server rejected this event, so retrying would not help.</p>
+    </div>)}
   </section>;
 }

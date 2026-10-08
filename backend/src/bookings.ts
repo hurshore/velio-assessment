@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { assignmentJson } from './experiments.js';
 import { DomainError, exact, object, platform, rows, text, uuid, type Database } from './domain.js';
+import { inviteStateSql, rejectUnavailableActivity, type PreviewState } from './invite-state.js';
 import type { FailureReporter } from './diagnostics.js';
 
 export interface TransactionConnection extends Database { release(error?: boolean): void }
@@ -38,15 +39,18 @@ async function availability(db: Database, activityId: string): Promise<Availabil
 }
 
 // Success telemetry uses the transaction; attempts run before it and outcomes after rollback/commit through the pool.
+// Markers inherit from the actor, the activity host and, for claims, the inviter.
 async function event(db: Database, name: string, intent: Intent, actor: Actor, context: object, booking?: Booking) {
   await db.query(`INSERT INTO analytics_events
     (id,schema_version,name,occurred_at,source,platform,actor_id,journey_id,activity_id,plan_id,booking_id,invite_id,context,synthetic,test)
-    VALUES ($1,1,$2,clock_timestamp(),'server',$3,$4,$5,$6,$7,$8,$13,$9::jsonb || jsonb_build_object('assignment',(SELECT ${assignmentJson('e')} FROM experiment_assignments e WHERE e.activity_id=$12)),
-      $10 OR COALESCE((SELECT host.synthetic FROM activities a JOIN users host ON host.id=a.host_id WHERE a.id=$12),false),
-      $11 OR COALESCE((SELECT host.test FROM activities a JOIN users host ON host.id=a.host_id WHERE a.id=$12),false))`,
-  [randomUUID(), name, intent.platform, actor.id, intent.journeyId, booking?.activityId ?? null, booking?.planId ?? null,
-    booking?.id ?? null, { ...context, requestId: intent.requestId, idempotencyKey: intent.key, operation: intent.operation, activityId: intent.activityId,
-      generation: actor.generation, ...(intent.invite ? { rail: intent.invite.rail } : {}) }, actor.synthetic, actor.test, intent.activityId, intent.invite?.id ?? null]);
+    SELECT $1,1,$2,clock_timestamp(),'server',$3,$4,$5,$6,$7,$8,$9,
+      $10::jsonb || jsonb_build_object('assignment',(SELECT ${assignmentJson('e')} FROM experiment_assignments e WHERE e.activity_id=$13)),
+      $11 OR COALESCE(host.synthetic,false) OR COALESCE(inviter.synthetic,false), $12 OR COALESCE(host.test,false) OR COALESCE(inviter.test,false)
+    FROM (SELECT 1) seed LEFT JOIN activities a ON a.id=$13 LEFT JOIN users host ON host.id=a.host_id
+    LEFT JOIN invites i ON i.id=$9 LEFT JOIN users inviter ON inviter.id=i.inviter_id`,
+  [randomUUID(), name, intent.platform, actor.id, intent.journeyId, booking?.activityId ?? null, booking?.planId ?? null, booking?.id ?? null,
+    intent.invite?.id ?? null, { ...context, requestId: intent.requestId, idempotencyKey: intent.key, operation: intent.operation, activityId: intent.activityId,
+      generation: actor.generation, ...(intent.invite ? { rail: intent.invite.rail } : {}) }, actor.synthetic, actor.test, intent.activityId]);
 }
 
 export async function bookSeat(db: BookingDatabase, intent: Intent, actor: Actor, logFailure: FailureReporter) {
@@ -92,14 +96,18 @@ export async function bookSeat(db: BookingDatabase, intent: Intent, actor: Actor
         const [reconciliation] = await rows<{ counter_mismatch: boolean; oversold: boolean }>(connection, 'SELECT counter_mismatch,oversold FROM booking_reconciliation WHERE activity_id=$1', [intent.activityId]);
         if (reconciliation!.counter_mismatch || reconciliation!.oversold) throw new Error('Booking membership and capacity counter disagree');
         stage = 'eligibility';
-        if (activity.status !== 'scheduled') throw new DomainError(409, 'ACTIVITY_UNAVAILABLE', 'This activity is no longer bookable.');
-        const [clock] = await rows<{ started: boolean }>(connection, 'SELECT $1::timestamptz <= clock_timestamp() AS started', [activity.startsAt]);
-        if (clock!.started) throw new DomainError(409, 'ACTIVITY_STARTED', 'This activity has already started.');
         if (intent.invite) {
+          // Claims classify the link exactly as its preview does, from the locked activity row.
+          const [invite] = await rows<{ state: PreviewState }>(connection, `SELECT ${inviteStateSql('o.observed_at')} AS state
+            FROM invites i JOIN activities a ON a.id=i.activity_id CROSS JOIN LATERAL (SELECT clock_timestamp() AS observed_at) o WHERE i.id=$1`, [intent.invite.id]);
+          rejectUnavailableActivity(invite!.state, 'it cannot be booked');
           stage = 'invite';
           if (intent.invite.inviterId === actor.id) throw new DomainError(403, 'SELF_INVITE', 'You cannot claim a seat through your own invitation.');
-          const [invite] = await rows<{ expired: boolean }>(connection, 'SELECT expires_at <= clock_timestamp() AS expired FROM invites WHERE id=$1', [intent.invite.id]);
-          if (invite!.expired) throw new DomainError(410, 'INVITE_EXPIRED', 'This invitation has expired. Ask for a new link.');
+          if (invite!.state === 'expired') throw new DomainError(410, 'INVITE_EXPIRED', 'This invitation has expired. Ask for a new link.');
+        } else {
+          const [clock] = await rows<{ started: boolean }>(connection, 'SELECT $1::timestamptz <= clock_timestamp() AS started', [activity.startsAt]);
+          if (activity.status === 'cancelled') throw new DomainError(409, 'ACTIVITY_UNAVAILABLE', 'This activity is no longer bookable.');
+          if (activity.status !== 'scheduled' || clock!.started) throw new DomainError(409, 'ACTIVITY_STARTED', 'This activity has already started.');
         }
         if (snapshot.remainingSeats === 0) { eligibility = 'sold_out'; throw new DomainError(409, 'SOLD_OUT', 'The last spot was just taken.'); }
         eligibility = 'eligible';
@@ -143,11 +151,17 @@ export async function bookSeat(db: BookingDatabase, intent: Intent, actor: Actor
   return { ...result, telemetry: telemetryFailed ? 'degraded' : 'ok' };
 }
 
-export async function bookingActor(db: Database, value: string | undefined): Promise<Actor> {
-  if (!value) throw new DomainError(401, 'IDENTITY_REQUIRED', 'Select a demo identity before booking.');
+export async function bookingActor(db: Database, value: string | undefined, purpose = 'booking'): Promise<Actor> {
+  if (!value) throw new DomainError(401, 'IDENTITY_REQUIRED', `Select a demo identity before ${purpose}.`);
   const [user] = await rows<Actor>(db, 'SELECT id,generation,synthetic,test FROM users WHERE id=$1', [uuid(value, 'Identity').toLowerCase()]);
-  if (!user) throw new DomainError(401, 'IDENTITY_REQUIRED', 'Select an existing demo identity before booking.');
+  if (!user) throw new DomainError(401, 'IDENTITY_REQUIRED', `Select an existing demo identity before ${purpose}.`);
   return user;
+}
+
+// Invalid requests still carry the platform when the body names a valid one.
+export function requestPlatform(body: unknown): string | undefined {
+  const value = body && typeof body === 'object' ? (body as Record<string, unknown>).platform : undefined;
+  return value === 'web' || value === 'mobile' ? value : undefined;
 }
 
 export function bookingRoutes(db: BookingDatabase, logFailure: FailureReporter) {
@@ -176,7 +190,7 @@ export function bookingRoutes(db: BookingDatabase, logFailure: FailureReporter) 
         platform: platform(body.platform), journeyId: uuid(body.journeyId, 'Journey'), requestId: response.locals.requestId };
     } catch (error) {
       await recordInvalidBooking(db, { requestId: response.locals.requestId, actorId: request.get('X-Demo-Actor-Id'), activityId: request.params.id,
-        code: error instanceof DomainError ? error.code : 'TECHNICAL_ERROR', technical: !(error instanceof DomainError) }, logFailure);
+        platform: requestPlatform(request.body), code: error instanceof DomainError ? error.code : 'TECHNICAL_ERROR', technical: !(error instanceof DomainError) }, logFailure);
       throw error;
     }
     const result = await bookSeat(db, intent, user, logFailure);
@@ -189,18 +203,22 @@ function optionalUuid(value: string | undefined): string | null {
   try { return value ? uuid(value, 'Telemetry context').toLowerCase() : null; }
   catch { return null; }
 }
-export async function recordInvalidBooking(db: Database, context: { requestId: string; actorId?: string; activityId?: string; inviteId?: string; operation?: Intent['operation']; code: string; technical?: boolean }, logFailure: FailureReporter) {
+export async function recordInvalidBooking(db: Database, context: { requestId: string; actorId?: string; activityId?: string; inviteId?: string; operation?: Intent['operation'];
+  platform?: string; code: string; technical?: boolean }, logFailure: FailureReporter) {
   try {
     const activityId = optionalUuid(context.activityId);
     // Invalid/missing entities contribute no flags; only resolved database rows classify the request.
+    // Without a valid platform in the body the column records web and context marks it unknown.
     await db.query(`INSERT INTO analytics_events (id,schema_version,name,occurred_at,source,platform,actor_id,journey_id,activity_id,invite_id,context,test,synthetic)
-      SELECT $1,1,'booking_request_outcome',clock_timestamp(),'server','web',actor.id,$2,a.id,$6,
+      SELECT $1,1,'booking_request_outcome',clock_timestamp(),'server',$7,actor.id,$2,a.id,$6,
         $3::jsonb || jsonb_build_object('assignment',(SELECT ${assignmentJson('e')} FROM experiment_assignments e WHERE e.activity_id=a.id),'activityContext', CASE WHEN $5::uuid IS NULL THEN 'invalid_id' WHEN a.id IS NULL THEN 'not_found' ELSE 'resolved' END),
-        COALESCE(actor.test,false) OR COALESCE(host.test,false), COALESCE(actor.synthetic,false) OR COALESCE(host.synthetic,false)
+        COALESCE(actor.test,false) OR COALESCE(host.test,false) OR COALESCE(inviter.test,false),
+        COALESCE(actor.synthetic,false) OR COALESCE(host.synthetic,false) OR COALESCE(inviter.synthetic,false)
       FROM (SELECT 1) seed LEFT JOIN users actor ON actor.id=$4
-      LEFT JOIN activities a ON a.id=$5 LEFT JOIN users host ON host.id=a.host_id`,
+      LEFT JOIN activities a ON a.id=$5 LEFT JOIN users host ON host.id=a.host_id
+      LEFT JOIN invites i ON i.id=$6 LEFT JOIN users inviter ON inviter.id=i.inviter_id`,
     [randomUUID(), context.requestId, { outcome: context.technical ? 'technical_error' : 'invalid', eligibility: context.technical ? 'unknown' : 'ineligible',
-      stage: 'validation', requestId: context.requestId, code: context.code, platformKnown: false, operation: context.operation ?? 'book_activity' },
-    optionalUuid(context.actorId), activityId, context.inviteId ?? null]);
+      stage: 'validation', requestId: context.requestId, code: context.code, platformKnown: context.platform !== undefined, operation: context.operation ?? 'book_activity' },
+    optionalUuid(context.actorId), activityId, context.inviteId ?? null, context.platform ?? 'web']);
   } catch (error) { logFailure({ component: 'booking.telemetry', requestId: context.requestId }, error); }
 }

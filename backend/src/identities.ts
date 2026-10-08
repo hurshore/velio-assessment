@@ -28,10 +28,13 @@ export function identityRoutes(db: Database) {
     const journeyId = uuid(body.journeyId, 'Journey');
     const inviteId = body.inviteCode === undefined ? null : await signupInviteId(db, body.inviteCode);
     // Acquisition and its event share one statement, so an event failure cannot orphan signup history.
-    // Invited users inherit inviter markers so synthetic referral chains stay out of product metrics.
+    // Invited users inherit inviter markers so synthetic referral chains stay out of product metrics;
+    // like other invite events, the signup event also inherits the activity host's markers.
     const [user] = await rows(db, `WITH invite AS (
-      SELECT i.id, i.activity_id, i.plan_id, i.inviter_id, i.inviter_root_id, i.invitee_generation, i.rail, inviter.synthetic, inviter.test
-      FROM invites i JOIN users inviter ON inviter.id=i.inviter_id WHERE i.id=$8
+      SELECT i.id, i.activity_id, i.plan_id, i.inviter_id, i.inviter_root_id, i.invitee_generation, i.rail, inviter.synthetic, inviter.test,
+        host.synthetic AS host_synthetic, host.test AS host_test
+      FROM invites i JOIN users inviter ON inviter.id=i.inviter_id JOIN activities a ON a.id=i.activity_id JOIN users host ON host.id=a.host_id
+      WHERE i.id=$8
     ), new_user AS (
       INSERT INTO users (id, display_name, generation, acquisition_parent_id, acquisition_root_id, acquisition_invite_id, acquisition_rail, synthetic, test)
       SELECT $1, $2, COALESCE(i.invitee_generation, 0), i.inviter_id, COALESCE(i.inviter_root_id, $1), i.id, i.rail,
@@ -47,7 +50,7 @@ export function identityRoutes(db: Database) {
           'acquisitionParentId', u.acquisition_parent_id, 'rail', u.acquisition_rail, 'acquisition', CASE WHEN u.acquisition_invite_id IS NULL THEN 'organic' ELSE 'invite' END))
         || CASE WHEN i.id IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('assignment',
           (SELECT ${assignmentJson('e')} FROM experiment_assignments e WHERE e.activity_id=i.activity_id)) END,
-        u.synthetic, u.test FROM new_user u LEFT JOIN invite i ON true
+        u.synthetic OR COALESCE(i.host_synthetic, false), u.test OR COALESCE(i.host_test, false) FROM new_user u LEFT JOIN invite i ON true
     ) SELECT ${identityColumns} FROM new_user`, [id, displayName, synthetic, test, randomUUID(), source, journeyId, inviteId]);
     response.status(201).json({ data: user, requestId: response.locals.requestId });
   });

@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { api, groupedCode, inviteLink, message, parseCreatedInvite, type Activity, type CreatedInvite } from './api';
 
-export function PublicShare({ activity, actorId, journeyId }: { activity: Activity; actorId: string; journeyId: string }) {
-  const [invite, setInvite] = useState<CreatedInvite | null>(null);
+// The created invite is owned by ActivityDetails so it survives detail refreshes for the same actor.
+export function PublicShare({ activity, actorId, journeyId, invite, onCreated }: {
+  activity: Activity; actorId: string; journeyId: string; invite: CreatedInvite | null; onCreated: (invite: CreatedInvite) => void;
+}) {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
@@ -11,19 +13,21 @@ export function PublicShare({ activity, actorId, journeyId }: { activity: Activi
     if (creating) return;
     setCreating(true); setError(''); setStatus('');
     try {
-      setInvite(parseCreatedInvite(await api(`/activities/${activity.id}/invites`, { actorId, body: { rail: 'public', platform: 'web', journeyId } }), activity.id));
-    } catch (error) { setError(message(error)); }
+      onCreated(parseCreatedInvite(await api(`/activities/${activity.id}/invites`, { actorId, body: { rail: 'public', platform: 'web', journeyId } }), activity));
+    } catch (failure) { setError(message(failure)); }
     finally { setCreating(false); }
   }
   async function copy(link: string) {
+    setStatus('');
     try { await navigator.clipboard.writeText(link); setStatus('Link copied.'); }
     catch { setStatus('Copying is unavailable here. Select the link and copy it manually.'); }
   }
   async function share(link: string) {
+    setStatus('');
     try { await navigator.share({ title: activity.title, text: `Join me at ${activity.title}. Seats are not reserved; claim one while places remain.`, url: link }); }
-    catch (error) {
+    catch (failure) {
       // Dismissing the share sheet is a normal choice, not a failure.
-      if (!(error instanceof DOMException && error.name === 'AbortError')) setStatus('Sharing is unavailable here. Copy the link instead.');
+      if (!(failure instanceof DOMException && failure.name === 'AbortError')) setStatus('Sharing is unavailable here. Copy the link instead.');
     }
   }
   const link = invite ? inviteLink(invite.code) : '';
@@ -42,7 +46,7 @@ export function PublicShare({ activity, actorId, journeyId }: { activity: Activi
         <button onClick={() => void copy(link)}>Copy link</button>
         {'share' in navigator ? <button onClick={() => void share(link)}>Share link</button> : null}
       </div>
-      {status ? <p role="status">{status}</p> : null}
     </> : null}
+    <p role="status" className="live">{status}</p>
   </div>;
 }

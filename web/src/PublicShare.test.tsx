@@ -73,3 +73,44 @@ test('a full activity explains why it cannot be shared', async () => {
   expect(await screen.findByText(/No seats remain, so there is nothing to share/)).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Create public link' }).hasAttribute('disabled')).toBe(true);
 });
+
+test('a created link survives refreshing details but is cleared when the actor changes', async () => {
+  const fetch = vi.fn().mockImplementation((url: string, options: RequestInit) => {
+    if (url.endsWith('/events')) return Promise.resolve(ok({ id: JSON.parse(options.body as string).id, accepted: true }));
+    if (url.endsWith('/invites')) return Promise.resolve(ok(invite, 201));
+    if (url.endsWith('/booking')) return Promise.resolve(ok({ booking: null, availability: { activityId: activity.id, planId: activity.planId, capacity: 4, confirmedCount: 1, remainingSeats: 3, version: 2 } }));
+    return Promise.resolve(ok(activity));
+  });
+  vi.stubGlobal('fetch', fetch);
+  const delivery = new ViewDelivery();
+  const view = render(<ActivityDetails id={activity.id} actorId={actorId} journeyId={journeyId} close={() => {}} delivery={delivery} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Create public link' }));
+  const link = `${window.location.origin}/invite/ABCD2345EFGH`;
+  await screen.findByDisplayValue(link);
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh details' }));
+  await waitFor(() => expect(fetch.mock.calls.filter(([url]) => String(url).endsWith(activity.id)).length).toBe(2));
+  expect(await screen.findByDisplayValue(link)).toBeTruthy();
+  view.rerender(<ActivityDetails id={activity.id} actorId="66666666-6666-4666-8666-666666666666" journeyId={journeyId} close={() => {}} delivery={delivery} />);
+  await waitFor(() => expect(screen.queryByDisplayValue(link)).toBeNull());
+});
+
+test('copy feedback is announced from a mounted status region and cleared when a new link is created', async () => {
+  vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
+  setup(async () => ok(invite, 201));
+  fireEvent.click(await screen.findByRole('button', { name: 'Create public link' }));
+  const panel = screen.getByRole('group', { name: 'Public share link' });
+  await within(panel).findByDisplayValue(`${window.location.origin}/invite/ABCD2345EFGH`);
+  const region = within(panel).getByRole('status');
+  fireEvent.click(screen.getByRole('button', { name: 'Copy link' }));
+  await waitFor(() => expect(region.textContent).toBe('Link copied.'));
+  fireEvent.click(screen.getByRole('button', { name: 'Create public link' }));
+  await waitFor(() => expect(region.textContent).toBe(''));
+  expect(region.isConnected).toBe(true);
+});
+
+test('a created invite missing contract fields is reported instead of shown', async () => {
+  setup(async () => ok({ ...invite, planId: undefined }, 201));
+  fireEvent.click(await screen.findByRole('button', { name: 'Create public link' }));
+  expect((await screen.findByRole('alert')).textContent).toMatch(/unexpected invitation/);
+  expect(screen.queryByText('ABCD-2345-EFGH')).toBeNull();
+});

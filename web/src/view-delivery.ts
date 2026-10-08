@@ -1,4 +1,4 @@
-import { api, message, type PolicyReason, type PreviewState } from './api';
+import { api, ApiError, message, type PolicyReason, type PreviewState } from './api';
 import { isRecord, unexpectedResponseMessage } from './response-envelope';
 
 export interface RenderedViewEvent {
@@ -18,7 +18,8 @@ type RenderedEvent = RenderedViewEvent | RenderedExposureEvent | RenderedInviteO
 interface Delivery {
   readonly event: RenderedEvent;
   readonly title: string;
-  readonly status: 'sending' | 'failed';
+  // 'rejected' is a definitive, non-retryable server refusal; it stays visible but is never resent.
+  readonly status: 'sending' | 'failed' | 'rejected';
   readonly error?: string;
 }
 // Owned by the host application, so local navigation cannot cancel a captured view or erase its failure.
@@ -64,7 +65,8 @@ export class ViewDelivery {
       if (!isRecord(receipt) || receipt.id !== event.id || typeof receipt.accepted !== 'boolean') throw new Error(unexpectedResponseMessage);
       this.entries.delete(event.id);
     } catch (error) {
-      this.entries.set(event.id, { ...delivery, status: 'failed', error: message(error) });
+      const rejected = error instanceof ApiError && !error.retryable;
+      this.entries.set(event.id, { ...delivery, status: rejected ? 'rejected' : 'failed', error: message(error) });
     }
     this.publish();
   }
