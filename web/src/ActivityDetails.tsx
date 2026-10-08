@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { SeatBooking } from './SeatBooking';
+import { PublicShare } from './PublicShare';
 import type { RenderedViewEvent, ViewDelivery } from './view-delivery';
 import { api, message, parseActivityDetail, type ActivityDetail } from './api';
 
@@ -92,6 +93,7 @@ function InvitationExperience({ activity, actorId, journeyId, delivery }: { acti
   return <section aria-labelledby={headingId}>
     <h3 id={headingId}>Invitations</h3>
     <p>{invitationCopy(reason)}</p>
-    <p className="hint">Invitations do not reserve seats. Invitation sharing is coming in a later update.</p>
+    <p className="hint">Invitations do not reserve seats. Only a confirmed booking holds a place.</p>
+    {allowed && actorId ? <PublicShare activity={activity} actorId={actorId} journeyId={journeyId} /> : null}
   </section>;
 }

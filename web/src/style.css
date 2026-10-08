@@ -26,3 +26,10 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 dt { font-weight: 700; margin-top: 16px; }
 dd { margin: 6px 0 0; overflow-wrap: anywhere; }
 @media (max-width: 600px) { main { margin: 0 auto; padding: 16px; } section { padding: 20px; } .form-row { grid-template-columns: 1fr; gap: 0; } }
+.button-row { display: flex; flex-wrap: wrap; gap: 12px; }
+.button-row button { margin-top: 12px; }
+main.guest { max-width: 640px; }
+.app-handoff { margin-top: 24px; padding: 20px; border-radius: 12px; background: #f4f7f0; border: 1px solid #cbd8cc; }
+.invite-code { font-size: clamp(1.4rem, 7vw, 2rem); font-weight: 700; letter-spacing: 0.08em; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
+.button-link { display: inline-flex; align-items: center; min-height: 48px; padding: 0 22px; border-radius: 10px; background: #205342; color: #fff; text-decoration: none; font-weight: 600; }
+.button-link:focus-visible { outline: 3px solid #c98524; outline-offset: 3px; }

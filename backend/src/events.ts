@@ -1,12 +1,17 @@
 import { Router } from 'express';
 import { assignmentJson, type PolicyReason } from './experiments.js';
 import { absoluteTime } from './activities.js';
+import { recordInviteOpen } from './invites.js';
 import { DomainError, exact, marker, object, platform, rows, uuid, type Database } from './domain.js';
 
 export function eventRoutes(db: Database) {
   const router = Router();
   router.post('/', async (request, response) => {
     const body = object(request.body);
+    if (body.name === 'invite_opened' && body.schemaVersion === 1 && body.source === 'client') {
+      response.status(202).json({ data: await recordInviteOpen(db, body, request.get('X-Demo-Actor-Id')), requestId: response.locals.requestId });
+      return;
+    }
     exact(body, ['id', 'schemaVersion', 'name', 'occurredAt', 'source', 'platform', 'actorId', 'journeyId', 'activityId', 'planId', 'synthetic', 'test', 'displayedInviteState']);
     const name = body.name;
     if (body.schemaVersion !== 1 || (name !== 'activity_viewed' && name !== 'experiment_exposed') || body.source !== 'client') {

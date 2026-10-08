@@ -1,6 +1,6 @@
 # Velio assessment
 
-Runnable Express/TypeScript API, React/TypeScript/Vite host/booker web client, and Flutter guest skeleton. [PLANS.md](PLANS.md) is the product and technical specification. The web supports persistent organic demo identities, activity creation/discovery/details, committed seat booking/recovery, and durable rendered-view events. Invitations, live updates and metrics remain subsequent tickets.
+Runnable Express/TypeScript API, React/TypeScript/Vite host/booker web client, and Flutter guest skeleton. [PLANS.md](PLANS.md) is the product and technical specification. The web supports persistent organic demo identities, activity creation/discovery/details, committed seat booking/recovery, durable rendered-view events, public share links with a responsive guest preview, and attributed invite claims through the shared booking API. Specific-contact vouches, the Flutter guest claim, live updates and metrics remain subsequent tickets.
 
 ## Toolchains
 
@@ -71,7 +71,7 @@ For a physical phone, opt in with `HOST=0.0.0.0 npm run dev` and `API_BASE_URL=h
 - `docker-compose.yml`: PostgreSQL/Redis with health checks.
 - [Initial shared contracts](docs/contracts/api.md): envelopes/errors, identity/idempotency, rail/ancestry, journey/events, versioned availability. Health, organic identity, activity discovery/creation/details and narrow rendered-view ingestion routes exist now.
 
-Process health remains 200 during dependency outages; readiness returns a safe retryable 503. Probes are bounded and API responses do not disclose dependency credentials. Invite ancestry, Redis-backed live delivery, mobile cache/haptics, metrics, and `OWNERSHIP.md` remain in subsequent plan tickets. Booking evidence is in [the booking report](docs/verification/seat-booking.md). Host activity evidence is in [the slice verification report](docs/verification/host-activities.md).
+Process health remains 200 during dependency outages; readiness returns a safe retryable 503. Probes are bounded and API responses do not disclose dependency credentials. Vouches, Redis-backed live delivery, mobile cache/haptics, metrics, and `OWNERSHIP.md` remain in subsequent plan tickets. Booking evidence is in [the booking report](docs/verification/seat-booking.md). Host activity evidence is in [the slice verification report](docs/verification/host-activities.md).
 
 ## Create and inspect an activity
 
@@ -101,11 +101,10 @@ activities with version 1 at 50%, without inventing exposure events. Allocation 
 cohort setting, not a guarantee that a small sample will contain that exact percentage.
 
 `INVITE_CREATION_ENABLED=false` disables new creation in all groups. Restart the API
-after changing environment settings. Both groups can still book. Future invitation resolution/claim routes are intended
-to honor issued valid codes independently of this switch; those routes are not implemented yet.
-Upcoming public/vouch creation routes must enforce the config-bound `createInvitePolicy(...).requireCreation`, including
-host routes. Sharing endpoints arrive in those tickets; this ticket exposes the policy,
-stable assignment and displayed experience tracking.
+after changing environment settings. Both groups can still book. Already-issued, unexpired
+links keep resolving and claiming independently of this switch and of later rollout changes.
+Public-link creation enforces the config-bound `createInvitePolicy(...).requireCreation` at its
+write boundary, for hosts and bookers alike; the eligibility read is presentation only.
 
 Safety stages are internal correctness/delivery checks, a limited eligible-activity
 cohort, then expanded treatment with a retained ordinary-booking holdout. A production
@@ -122,3 +121,13 @@ key. Every writer must supply an explicit assignment before commit; no trigger c
 a cohort. Missing assignment/policy reads fail closed for invitation creation while
 ordinary booking remains usable. Exposure display-state and deduplication semantics
 are documented in [the API contract](docs/contracts/api.md#invitation-experiment-issue-4).
+
+## Share a public link and preview it as a guest
+
+In a treatment activity, a host or confirmed booker sees a **Public share link** panel with remaining seats and its trust semantics: anyone holding the link can view and claim an open seat, it is not a personal vouch, and it reserves nothing. **Create public link** returns an opaque 12-character server code and a link to `/invite/<code>`, with Copy and (where the browser supports it) Share. Links expire 24 hours after creation or at activity start, whichever is first. Full, started and cancelled activities cannot be shared; control activities and a disabled creation switch refuse creation server-side.
+
+Opening `/invite/<code>` shows a responsive guest preview: inviter display name and role, activity details, local time with its IANA zone, price and current availability. Full, expired, started and cancelled links keep their context visible and do not prompt a claim. A valid link shows the grouped code and an **Open in the Velio app** link (`velio://invite/<code>`); deferred deep linking is not assumed, so the code is the dependable path after a fresh install. `/invite` alone offers code entry. The web does not claim: guests claim in the Flutter app (#8) through the same API. Rendering the preview sends one `invite_opened` event with the persistent journey ID; fetching the preview does not, so link-unfurling bots are not counted. Production web hosting must serve `index.html` for `/invite/*` (Vite dev does this already).
+
+The API claim (`POST /api/invites/:code/claims`) runs inside the shared booking transaction, after the activity lock: existing bookings are recovered first, then self-invites, status/start and expiry are checked, then capacity. Booking, count/version, redemption edge, success events, idempotency result and outbox commit together. New identities created with `inviteCode` inherit generation, parent, root and rail from the invite's snapshot; returning users keep their signup history and gain only a redemption edge. `npm run seed` adds a labelled organic → invited → invited chain with a returning claimant (`Supper club · demo seed`); its fixed historical links are expired fixtures, so create fresh links to share.
+
+Focused verification: `node --env-file=.env --import tsx --test backend/test/invites.test.ts` and `npm run test --workspace web -- src/PublicShare.test.tsx src/GuestInvite.test.tsx`. Evidence: [the public invitation report](docs/verification/public-invites.md). Contract: [public invitations](docs/contracts/api.md#public-invitations-issue-5).

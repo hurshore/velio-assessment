@@ -25,3 +25,15 @@ repair with an explicit cohort before retrying. No trigger invents configuration
 `assign_invite_experiment(activity, version, allocation)` is a security-invoker SQL
 helper shared by API creation and seeds, with explicit arguments and no history
 rewrite on replay. Runtime assignment update/delete restrictions remain unchanged.
+
+`007` owns public invitation and attribution history. `invites` stores the opaque code,
+activity/plan, inviter role, rail, expiry and a snapshot of the inviter's signup
+ancestry. Composite foreign keys tie invited users and `signup_attribution` to that exact
+snapshot (parent, root, rail, generation + 1) and tie each `invite_redemptions` edge to
+its invite, booking membership and the invitee's generation, so forged ancestry fails
+in the database. Runtime may insert/read invites and redemptions; append-only triggers
+additionally refuse ordinary UPDATE/DELETE of invites, redemptions, signup attribution,
+corrections and users' ancestry columns from any role. Fixes append to
+`attribution_corrections` with migration credentials. `invites_rail_supported` allows only
+`public` until the vouch ticket adds recipient binding. `seeds/invites.sql` adds a labelled
+attribution chain whose bookings set counts directly, without outbox rows.

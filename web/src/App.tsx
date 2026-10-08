@@ -1,4 +1,5 @@
 import { HostApp } from './HostApp';
+import { GuestInvite } from './GuestInvite';
 import { useEffect, useState } from 'react';
 
 import { parseReadiness, connectionErrorMessage, unexpectedResponseMessage, type Readiness } from './readiness';
@@ -6,7 +7,23 @@ import { parseReadiness, connectionErrorMessage, unexpectedResponseMessage, type
 type Connection = { status: 'loading' } | Readiness;
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
 
+// Guests arrive on /invite/<code> from a shared link; everything else is the host/booker app.
+function invitePath(): string | null {
+  const match = window.location.pathname.match(/^\/invite(?:\/([^/]*))?\/?$/);
+  if (!match) return null;
+  try { return decodeURIComponent(match[1] ?? ''); } catch { return match[1] ?? ''; }
+}
+
 export function App() {
+  const [guestCode] = useState(invitePath);
+  if (guestCode !== null) return <main className="guest">
+    <p className="eyebrow">VELIO / YOU'RE INVITED</p>
+    <GuestInvite initialCode={guestCode} />
+  </main>;
+  return <HostAndBooker />;
+}
+
+function HostAndBooker() {
   const [connection, setConnection] = useState<Connection>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {

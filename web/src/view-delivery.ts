@@ -1,4 +1,4 @@
-import { api, message, type PolicyReason } from './api';
+import { api, message, type PolicyReason, type PreviewState } from './api';
 import { isRecord, unexpectedResponseMessage } from './response-envelope';
 
 export interface RenderedViewEvent {
@@ -9,7 +9,12 @@ export interface RenderedExposureEvent extends Omit<RenderedViewEvent, 'name'> {
   readonly name: 'experiment_exposed';
   readonly displayedInviteState: { readonly enabled: boolean; readonly creationEnabled: boolean; readonly reason: PolicyReason };
 }
-type RenderedEvent = RenderedViewEvent | RenderedExposureEvent;
+// Sent only after a human-visible preview renders; resolving a link alone never records an open.
+export interface RenderedInviteOpenEvent {
+  readonly id: string; readonly schemaVersion: 1; readonly name: 'invite_opened'; readonly source: 'client'; readonly platform: 'web';
+  readonly occurredAt: string; readonly actorId?: string; readonly journeyId: string; readonly inviteCode: string; readonly displayedState: PreviewState;
+}
+type RenderedEvent = RenderedViewEvent | RenderedExposureEvent | RenderedInviteOpenEvent;
 interface Delivery {
   readonly event: RenderedEvent;
   readonly title: string;

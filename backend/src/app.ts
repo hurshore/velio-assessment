@@ -4,6 +4,7 @@ import { createInvitePolicy, experimentRoutes, type InviteConfig } from './exper
 import { bookingRoutes, recordInvalidBooking, type BookingDatabase } from './bookings.js';
 import { eventRoutes } from './events.js';
 import { activityRoutes } from './activities.js';
+import { inviteCreationRoutes, inviteRoutes } from './invites.js';
 import { DomainError, identityRoutes } from './domain.js';
 import { reportFailure, type FailureReporter } from './diagnostics.js';
 import { readinessTimeoutMs } from './readiness.js';
@@ -75,7 +76,9 @@ export function createApp(dependencies: Dependencies, webOrigin: string, logFail
   app.use('/api/events', eventRoutes(dependencies.postgres));
   app.use('/api/activities', experimentRoutes(invitePolicy));
   app.use('/api/activities', bookingRoutes(dependencies.postgres, logFailure));
+  app.use('/api/activities', inviteCreationRoutes(dependencies.postgres, invitePolicy));
   app.use('/api/activities', activityRoutes(dependencies.postgres, dependencies.invites, invitePolicy));
+  app.use('/api/invites', inviteRoutes(dependencies.postgres, logFailure));
   app.use('/api/identities', identityRoutes(dependencies.postgres));
   app.use((_request, response) => {
     response.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found.', retryable: false }, requestId: response.locals.requestId });

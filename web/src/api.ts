@@ -141,3 +141,53 @@ export function parseBookingState(value: unknown, activity: Activity, actorId: s
   }
   return data as unknown as BookingState;
 }
+
+export interface CreatedInvite {
+  id: string; code: string; rail: 'public'; inviterRole: 'host' | 'booker'; activityId: string; planId: string; createdAt: string; expiresAt: string;
+  availability: { capacity: number; confirmedCount: number; remainingSeats: number; version: number };
+}
+const codePattern = /^[0-9A-HJKMNP-TV-Z]{12}$/;
+export function parseCreatedInvite(value: unknown, activityId: string): CreatedInvite {
+  const data = record(value);
+  const availability = record(data.availability);
+  if (typeof data.id !== 'string' || typeof data.code !== 'string' || !codePattern.test(data.code) || data.rail !== 'public' ||
+    (data.inviterRole !== 'host' && data.inviterRole !== 'booker') || data.activityId !== activityId ||
+    typeof data.expiresAt !== 'string' || !Number.isFinite(Date.parse(data.expiresAt)) ||
+    !['capacity', 'confirmedCount', 'remainingSeats', 'version'].every(key => Number.isInteger(availability[key]))) {
+    throw new Error('The API returned an unexpected invitation.');
+  }
+  return data as unknown as CreatedInvite;
+}
+// Mirrors the server's normalization so typed or pasted codes resolve the same invite.
+export function normalizeInviteCode(value: string): string { return value.replace(/[\s-]/g, '').toUpperCase(); }
+export function isInviteCode(value: string): boolean { return codePattern.test(normalizeInviteCode(value)); }
+export function groupedCode(code: string): string { return code.match(/.{1,4}/g)!.join('-'); }
+export function inviteLink(code: string): string { return `${window.location.origin}/invite/${code}`; }
+// Documented installed-app route; the Flutter guest app registers this scheme.
+export function appLink(code: string): string { return `velio://invite/${code}`; }
+
+export type PreviewState = 'valid' | 'full' | 'expired' | 'started' | 'cancelled';
+export interface InvitePreview {
+  code: string; rail: 'public'; trust: 'public'; state: PreviewState; createdAt: string; expiresAt: string;
+  inviter: { displayName: string; role: 'host' | 'booker' };
+  activity: Omit<Activity, 'hostId' | 'invitePolicy' | 'assignment' | 'participants'>;
+}
+export function parseInvitePreview(value: unknown): InvitePreview {
+  const data = record(value);
+  const inviter = record(data.inviter);
+  const activity = parseActivity({ ...record(data.activity), hostId: '' });
+  if (typeof data.code !== 'string' || !codePattern.test(data.code) || data.rail !== 'public' || data.trust !== 'public' ||
+    !['valid', 'full', 'expired', 'started', 'cancelled'].includes(data.state as string) ||
+    typeof data.expiresAt !== 'string' || !Number.isFinite(Date.parse(data.expiresAt)) ||
+    typeof inviter.displayName !== 'string' || (inviter.role !== 'host' && inviter.role !== 'booker')) {
+    throw new Error('The API returned an unexpected invitation.');
+  }
+  return { ...(data as unknown as InvitePreview), activity };
+}
+export function formatPrice(minor: number, currency: string): string {
+  if (minor === 0) return 'Free';
+  try {
+    const format = new Intl.NumberFormat(undefined, { style: 'currency', currency });
+    return format.format(minor / 10 ** (format.resolvedOptions().maximumFractionDigits ?? 2));
+  } catch { return `${minor} ${currency} minor units`; }
+}
