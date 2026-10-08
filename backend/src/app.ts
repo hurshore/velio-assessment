@@ -1,10 +1,13 @@
+import { eventRoutes } from './events.js';
+import { activityRoutes } from './activities.js';
+import { DomainError, identityRoutes } from './domain.js';
 import { randomUUID } from 'node:crypto';
 import { reportFailure, type FailureReporter } from './diagnostics.js';
 import { readinessTimeoutMs } from './readiness.js';
 import express, { type ErrorRequestHandler } from 'express';
 
 export interface Dependencies {
-  postgres: { query: (sql: string) => Promise<unknown> };
+  postgres: { query: (sql: string, parameters?: unknown[]) => Promise<unknown> };
   redis: { ping: () => Promise<string> };
 }
 
@@ -65,10 +68,17 @@ export function createApp(dependencies: Dependencies, webOrigin: string, logFail
     }
     response.json({ data: { status: 'ok', dependencies: { postgres: 'ok', redis: 'ok' } }, requestId: response.locals.requestId });
   });
+  app.use('/api/events', eventRoutes(dependencies.postgres));
+  app.use('/api/activities', activityRoutes(dependencies.postgres));
+  app.use('/api/identities', identityRoutes(dependencies.postgres));
   app.use((_request, response) => {
     response.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found.', retryable: false }, requestId: response.locals.requestId });
   });
   const handleError: ErrorRequestHandler = (error, _request, response, _next) => {
+    if (error instanceof DomainError) {
+      response.status(error.status).json({ error: { code: error.code, message: error.message, retryable: false }, requestId: response.locals.requestId });
+      return;
+    }
     logFailure({ component: 'http', requestId: response.locals.requestId }, error);
     const invalidJson = error instanceof SyntaxError && 'type' in error && error.type === 'entity.parse.failed';
     const oversized = error?.type === 'entity.too.large';

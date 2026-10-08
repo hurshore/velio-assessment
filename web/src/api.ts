@@ -1,0 +1,66 @@
+const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
+export interface Identity {
+  id: string; displayName: string; generation: number; acquisitionParentId: string | null; acquisitionRootId: string;
+  synthetic: boolean; test: boolean;
+}
+export interface Activity {
+  id: string; hostId: string; title: string; description: string; meetingLocation: string; startsAt: string; timezone: string;
+  capacity: number; confirmedCount: number; remainingSeats: number; priceMinor: number; currency: string; version: number;
+  status: string; planId: string; participants?: { id: string; displayName: string }[];
+}
+export async function api(path: string, options: { body?: unknown; actorId?: string; signal?: AbortSignal } = {}): Promise<unknown> {
+  const response = await fetch(apiBase + '/api' + path, { method: options.body === undefined ? 'GET' : 'POST',
+    headers: { 'Content-Type': 'application/json', ...(options.actorId ? { 'X-Demo-Actor-Id': options.actorId } : {}) },
+    body: options.body === undefined ? undefined : JSON.stringify(options.body), signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(8000)]) : AbortSignal.timeout(8000) });
+  const envelope = await response.json();
+  if (!envelope || typeof envelope.requestId !== 'string' || !envelope.requestId) throw new Error('The API returned an unexpected response.');
+  if (!response.ok) {
+    if (typeof envelope.error?.message !== 'string') throw new Error('The API returned an unexpected response.');
+    throw new Error(`${envelope.error.message} (Request: ${envelope.requestId})`);
+  }
+  return envelope.data;
+}
+function record(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('The API returned an unexpected response.');
+  return value as Record<string, unknown>;
+}
+export function parseIdentity(value: unknown): Identity {
+  const data = record(value);
+  if (typeof data.id !== 'string' || typeof data.displayName !== 'string' || !Number.isInteger(data.generation) ||
+    typeof data.acquisitionRootId !== 'string' || !(data.acquisitionParentId === null || typeof data.acquisitionParentId === 'string') ||
+    typeof data.synthetic !== 'boolean' || typeof data.test !== 'boolean') throw new Error('The API returned an unexpected identity.');
+  return data as unknown as Identity;
+}
+export function parseActivity(value: unknown): Activity {
+  const data = record(value);
+  for (const key of ['id', 'hostId', 'title', 'description', 'meetingLocation', 'startsAt', 'timezone', 'currency', 'status', 'planId']) {
+    if (typeof data[key] !== 'string') throw new Error('The API returned an unexpected activity.');
+  }
+  for (const key of ['capacity', 'confirmedCount', 'remainingSeats', 'priceMinor', 'version']) {
+    if (!Number.isInteger(data[key])) throw new Error('The API returned an unexpected activity.');
+  }
+  if (!Number.isFinite(Date.parse(data.startsAt as string))) throw new Error('The API returned an invalid start time.');
+  try { new Intl.DateTimeFormat('en', { timeZone: data.timezone as string }); }
+  catch { throw new Error('The API returned an invalid timezone.'); }
+  if (data.participants !== undefined) {
+    if (!Array.isArray(data.participants)) throw new Error('The API returned invalid participants.');
+    for (const value of data.participants) {
+      const participant = record(value);
+      if (typeof participant.id !== 'string' || typeof participant.displayName !== 'string') throw new Error('The API returned invalid participants.');
+    }
+  }
+  return data as unknown as Activity;
+}
+export function parseList<T>(value: unknown, parse: (item: unknown) => T): T[] {
+  if (!Array.isArray(value)) throw new Error('The API returned an unexpected list.');
+  return value.map(parse);
+}
+export function message(error: unknown): string { return error instanceof Error ? error.message : 'Could not connect. Please retry.'; }
+export function stored(key: string): string { try { return localStorage.getItem(key) ?? ''; } catch { return ''; } }
+export function persist(key: string, value: string): boolean { try { localStorage.setItem(key, value); return true; } catch { return false; } }
+export function journey(): string {
+  const previous = stored('velio.journey.v1');
+  const id = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(previous) ? previous : crypto.randomUUID();
+  persist('velio.journey.v1', id);
+  return id;
+}

@@ -27,6 +27,7 @@
     "mobile:check": "cd mobile && flutter analyze && flutter test",
     "mobile:run": "node scripts/mobile.mjs",
     "verify": "npm run typecheck && npm test && npm run build && npm run mobile:check",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "seed": "npm run seed --workspace backend"
   }
 }
