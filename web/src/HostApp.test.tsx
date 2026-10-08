@@ -263,3 +263,25 @@ test('a delivery timeout stays observable after details close', async () => {
   expect(await screen.findByText(/View tracking could not be saved/, {}, { timeout: 9000 })).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Retry view tracking' })).toBeTruthy();
 }, 10000);
+
+test('identity creation sends an optional demo contact only when one is entered', async () => {
+  const fetch = vi.fn().mockImplementation((url: string, options: RequestInit) => {
+    if (url.endsWith('/identities')) return Promise.resolve(response(options.method === 'POST' ? identity : []));
+    return Promise.resolve(response([]));
+  });
+  vi.stubGlobal('fetch', fetch);
+  render(<HostApp />);
+  await screen.findByText('No demo identities yet. Create one to host an activity.');
+  expect(screen.getByText(/contact is not verified/)).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Tunde' } });
+  fireEvent.change(screen.getByLabelText(/Contact for vouches/), { target: { value: ' tunde@example.com ' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create demo identity' }));
+  await screen.findByRole('option', { name: 'Amara' });
+  const posts = fetch.mock.calls.filter(([url, options]) => String(url).endsWith('/identities') && options.method === 'POST');
+  expect(JSON.parse(posts[0]![1].body)).toMatchObject({ displayName: 'Tunde', contact: 'tunde@example.com' });
+  fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Kemi' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create demo identity' }));
+  await waitFor(() => expect(fetch.mock.calls.filter(([url, options]) => String(url).endsWith('/identities') && options.method === 'POST').length).toBe(2));
+  const second = JSON.parse(fetch.mock.calls.filter(([url, options]) => String(url).endsWith('/identities') && options.method === 'POST')[1]![1].body);
+  expect('contact' in second).toBe(false);
+});

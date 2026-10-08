@@ -1,6 +1,6 @@
 # Shared API contract, version 1
 
-Current implementation and planned follow-up contracts for PLANS.md §2.3–2.6 and §4.1. Health/readiness, organic demo identities, host activity creation/inspection, and validated activity-view ingestion are implemented. Seat booking/recovery, the transactional outbox writer, live availability, and public invitations (creation, resolution, claims, invite-stamped signup and rendered opens) are also implemented. Vouches and product metrics remain in subsequent tickets; sections labelled planned describe those future boundaries. Changes to planned decisions must be recorded in PLANS.md §6.
+Current implementation and planned follow-up contracts for PLANS.md §2.3–2.6 and §4.1. Health/readiness, organic demo identities, host activity creation/inspection, and validated activity-view ingestion are implemented. Seat booking/recovery, the transactional outbox writer, live availability, and public invitations (creation, resolution, claims, invite-stamped signup and rendered opens) are also implemented. Recipient-bound vouches are implemented (see [Vouches](#vouches-issue-6)). Product metrics remain in subsequent tickets; sections labelled planned describe those future boundaries. Changes to planned decisions must be recorded in PLANS.md §6.
 
 ## HTTP boundary
 
@@ -170,6 +170,18 @@ Shared by web, Flutter (#8) and vouches (#6). Codes are 12 characters of Crockfo
 Claim telemetry: each valid claim records `booking_attempted` and `invite_claim_attempted` before the transaction; `booking_failed`/`booking_sold_out` and `booking_request_outcome` (`operation: "claim_invite"`) survive rollback; recoveries record outcome `replay` and no new `spot_claimed`. Claim events from valid requests carry `invite_id`, platform, journey, `rail`, the actor's signup `generation` and the persisted assignment. Invalid claim requests record only `booking_request_outcome` with `operation: "claim_invite"`, invite/activity context when the code resolves, and the body's platform when valid.
 
 Markers: every invite event (`invite_created`, `invite_opened`, `identity_created`, claim attempts, successes and outcomes) is synthetic/test when the actor or viewer, the activity host or the inviter is; client-supplied markers can add but never clear them.
+
+## Vouches (issue #6)
+
+A vouch is the `vouch` rail of the same invitation contract above: same code format, links, preview states, expiry, creation policy, claim transaction and events. Differences are additive:
+
+- `POST /api/identities` accepts optional `contact`: an email address (lowercased) or phone number (spaces, dashes, dots and parentheses removed; 7–15 digits, optional leading `+`). It is a demo contact, unverified, set once at signup and unique when present; a duplicate returns 409 `CONTACT_IN_USE`. Identity responses and listings never include it.
+- `POST /api/activities/:id/invites` accepts `{rail: "vouch", recipientContact, platform, journeyId?}`. `recipientContact` is required for `vouch` and rejected for `public` (400 `INVALID_REQUEST`, also for an invalid contact). Vouching for the inviter's own contact returns 400 `SELF_INVITE`. Policy, capacity and activity-state errors are identical to public links. The 201 response adds `recipientContact` (normalized), returned only to the inviter who entered it.
+- `GET /api/invites/:code` returns `rail: "vouch"` and `trust: "vouch"`. It never includes or hints at the intended contact, and has no separate "used" state: only the recipient could act on that, and their claim recovers their booking.
+- Claims add one check, after the self-invite check and before expiry, judged inside the booking transaction after the activity row lock: a claimant whose identity contact is absent or different gets 403 `RECIPIENT_MISMATCH` (the message never names the contact). A vouch has one logical successful redemption; existing-booking recovery still comes first, so the recipient reopens the same confirmation by key or by membership even when the activity is full or the vouch is used. Wrong-recipient, sold-out, expired and rolled-back claims consume neither a seat nor the vouch. `409 ALREADY_REDEEMED` is a defensive code that unique contacts make unreachable.
+- Signup with a vouch `inviteCode` must supply the matching `contact`; otherwise 403 `RECIPIENT_MISMATCH`. A matching signup is acquired with rail `vouch`.
+- Events: `invite_created`, `invite_opened`, `identity_created` and claim events carry server-derived `rail: "vouch"` and generation exactly as for public links, and never the contact. Wrong-recipient claims record `booking_failed` with code `RECIPIENT_MISMATCH`, stage `invite`.
+
 
 History: `invites`, `invite_redemptions` and `signup_attribution` are insert-only for the runtime role, and append-only triggers refuse ordinary UPDATE/DELETE from any role. Users' ancestry columns are immutable; display names remain editable. Composite foreign keys reject an invited user, signup attribution or redemption that does not match the stored invite snapshot. Corrections append to `attribution_corrections` (`subject`, `subject_id`, `reason`, `correction`) using migration credentials; runtime can read them only. This protects history from application mutation, not from an administrator replacing the database.
 

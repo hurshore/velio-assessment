@@ -18,6 +18,13 @@ export function uuid(value: unknown, field: string): string {
   if (typeof value !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) invalid(`${field} must be a UUID.`);
   return value;
 }
+// Demo contacts are unverified; normalization only makes typed variants of one contact match.
+export function contact(value: unknown, field: string): string {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  const normalized = raw.includes('@') ? raw.toLowerCase() : raw.replace(/[\s().-]/g, '');
+  if (normalized.length > 254 || !/^(\+?[0-9]{7,15}|[^\s@]+@[^\s@]+\.[^\s@]+)$/.test(normalized)) invalid(`${field} must be an email address or phone number.`);
+  return normalized;
+}
 export function marker(value: unknown): boolean {
   if (value === undefined) return false;
   if (typeof value !== 'boolean') invalid('Synthetic and test markers must be booleans.');

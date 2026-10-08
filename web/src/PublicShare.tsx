@@ -13,7 +13,7 @@ export function PublicShare({ activity, actorId, journeyId, invite, onCreated }:
     if (creating) return;
     setCreating(true); setError(''); setStatus('');
     try {
-      onCreated(parseCreatedInvite(await api(`/activities/${activity.id}/invites`, { actorId, body: { rail: 'public', platform: 'web', journeyId } }), activity));
+      onCreated(parseCreatedInvite(await api(`/activities/${activity.id}/invites`, { actorId, body: { rail: 'public', platform: 'web', journeyId } }), activity, 'public'));
     } catch (failure) { setError(message(failure)); }
     finally { setCreating(false); }
   }

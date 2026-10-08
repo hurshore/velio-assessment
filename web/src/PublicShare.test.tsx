@@ -34,10 +34,11 @@ test('explains public trust and remaining seats before creating, then offers a c
   vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
   const fetch = setup(async () => ok(invite, 201));
   const button = await screen.findByRole('button', { name: 'Create public link' });
-  expect(within(screen.getByRole('group', { name: 'Public share link' })).getByText(/3 of 4 seats remaining/)).toBeTruthy();
-  expect(screen.getByText(/Anyone with this link/)).toBeTruthy();
-  expect(screen.getByText(/does not reserve a seat/)).toBeTruthy();
-  expect(screen.getByText(/not a personal vouch/)).toBeTruthy();
+  const panel = within(screen.getByRole('group', { name: 'Public share link' }));
+  expect(panel.getByText(/3 of 4 seats remaining/)).toBeTruthy();
+  expect(panel.getByText(/Anyone with this link/)).toBeTruthy();
+  expect(panel.getByText(/does not reserve a seat/)).toBeTruthy();
+  expect(panel.getByText(/not a personal vouch/)).toBeTruthy();
   fireEvent.click(button);
   const link = `${window.location.origin}/invite/ABCD2345EFGH`;
   expect(await screen.findByDisplayValue(link)).toBeTruthy();

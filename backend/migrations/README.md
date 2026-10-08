@@ -41,3 +41,10 @@ corrections and users' ancestry columns from any role. Fixes append to
 `attribution_corrections` with migration credentials. `invites_rail_supported` allows only
 `public` until the vouch ticket adds recipient binding. `seeds/invites.sql` adds a labelled
 attribution chain whose bookings set counts directly, without outbox rows.
+
+`010` adds the vouch rail. Users gain an optional demo `contact` (lowercase email or digits-only
+phone, unique when present, set at signup only), and invites gain `recipient_contact`, required
+exactly for `vouch`; `invites_rail_supported` is dropped. A partial unique index allows one
+redemption per vouch, and `require_vouch_recipient` triggers refuse vouch redemptions and
+vouch-acquired signups whose contact differs from the invite's intended contact. The contact is
+unverified, so this simulates recipient matching rather than proving identity.
