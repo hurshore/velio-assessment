@@ -1,8 +1,10 @@
+import { StrictMode } from 'react';
 import { afterEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import fixtures from '../../docs/contracts/readiness-fixtures.json';
 import { App } from './App';
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 test('shows API readiness and request reference after a successful roundtrip', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
@@ -33,4 +35,47 @@ test('does not claim readiness when the API returns a dependency outage', async 
   expect(await screen.findByText('The API is running, but its dependencies are unavailable. Please retry.')).toBeTruthy();
   expect(screen.queryByText('API connected')).toBeNull();
   expect(screen.getByText('Request: outage-reference')).toBeTruthy();
+});
+
+test('malformed error references show a contract error instead of crashing', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+    error: { code: 'DEPENDENCIES_UNAVAILABLE', message: 'Unavailable', retryable: true }, requestId: { bad: 'reference' },
+  }), { status: 503 })));
+  render(<App />);
+  expect(await screen.findByText('The API returned an unexpected response. Please retry.')).toBeTruthy();
+  expect(screen.queryByText('API connected')).toBeNull();
+});
+
+
+for (const fixture of fixtures) {
+  test(`shared contract: ${fixture.name}`, async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(fixture.body), { status: fixture.status })));
+    render(<App />);
+    expect(await screen.findByText(fixture.message)).toBeTruthy();
+    expect(screen.queryByText('API connected')).toBeNull();
+    if (fixture.message.includes('unexpected')) expect(screen.queryByText(/Request:/)).toBeNull();
+  });
+}
+
+test('non-JSON responses show a contract error', async () => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('<html>Proxy failure</html>', { status: 502 })));
+  render(<App />);
+  expect(await screen.findByText('The API returned an unexpected response. Please retry.')).toBeTruthy();
+});
+
+
+test('a superseded check cannot overwrite the current rendered success', async () => {
+  let finishOld!: (response: Response) => void;
+  const old = new Promise<Response>(resolve => { finishOld = resolve; });
+  vi.stubGlobal('fetch', vi.fn().mockReturnValueOnce(old).mockResolvedValueOnce(new Response(JSON.stringify({
+    data: { status: 'ok', dependencies: { postgres: 'ok', redis: 'ok' } }, requestId: 'current',
+  }), { status: 200 })));
+  render(<StrictMode><App /></StrictMode>);
+  expect(await screen.findByText('Request: current')).toBeTruthy();
+  finishOld(new Response(JSON.stringify({ error: { code: 'DEPENDENCIES_UNAVAILABLE', message: 'Unavailable', retryable: true }, requestId: 'old' }), { status: 503 }));
+  await old;
+  expect(await screen.findByText('API connected')).toBeTruthy();
+  expect(screen.queryByText('Request: old')).toBeNull();
 });

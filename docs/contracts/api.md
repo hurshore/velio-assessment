@@ -31,3 +31,15 @@ Persist a random guest journey ID before rendering an invite; retain it across o
 ## Versioned availability
 
 Snapshot: `{ "eventId": "<UUID>", "activityId": "...", "version": 1, "capacity": 2, "confirmedCount": 1, "remainingSeats": 1 }`. Versions increase with committed changes; counts come from PostgreSQL. Redis publication uses the durable outbox. Clients ignore duplicate/older versions, subscribe with snapshot recovery, reconcile periodically, and refresh on foreground/reconnect. ACK `{ "activityId": "...", "version": 1, "eventId": "..." }` only after visible application. Cached/offline capacity is labelled stale and cannot enable a claim. WebSocket endpoint/message names and event storage arrive with the live/tracking tickets.
+
+## CORS and readiness validation
+
+The allowed WEB_ORIGIN is one validated HTTP(S) origin, normalized to its browser form. Preflight permits GET/POST/OPTIONS and Content-Type, Idempotency-Key, and X-Demo-Actor-Id (the planned demo identity header). Unapproved origins, methods, or headers receive 403 CORS_REQUEST_DENIED; unapproved origins are never reflected. Responses vary by Origin and preflight request method/headers. No cookie-credential CORS mode is enabled.
+
+Both clients require an object envelope with a nonempty string request reference. A 200 readiness response must have status=ok and both dependencies ok; an error response must have a nonempty string code/message and boolean retryability. Unknown valid codes use safe connection guidance. Malformed/non-JSON responses show “The API returned an unexpected response. Please retry.” and never render unchecked reference fields. [Shared fixtures](readiness-fixtures.json) exercise error/malformed payload parity in both UI suites; request references are treated as opaque strings, while the API generates UUIDs.
+
+## Mobile transport follow-up M7
+
+**Deferred from issue #1 hardening; reference: foundation/mobile-readiness-transport-cancellation (M7).** The current five-second timeout bounds the visible check but does not cancel the underlying http.Client.get. Same-frame checks are serialized and stale/disposed results cannot update visible state. A retry after timeout can still coexist with an abandoned transport request until completion or disposal; this limitation is deliberately retained here.
+
+At the mobile guest-flow implementation boundary (PLANS.md §3.3), choose a supported request-cancellation mechanism or per-attempt owned transport, retain the pending claim's idempotency key, and test actual socket termination on timeout/dispose plus repeated timeout/retry cycles. Do not close a caller-owned injected client. Acceptance: each abandoned readiness request releases its transport resources, no late completion changes current UI, and booking recovery remains safe. No transport redesign or booking work is included in this hardening commit.

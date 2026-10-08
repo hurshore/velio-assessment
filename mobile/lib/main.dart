@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
+import 'readiness.dart';
+
 const apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
   defaultValue: 'http://127.0.0.1:3000',
@@ -36,6 +38,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   late final http.Client _client;
   String? _requestId;
   bool _loading = true;
+  bool _checking = false;
+  int _attempt = 0;
   String? _error;
 
   @override
@@ -46,6 +50,9 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   Future<void> _checkConnection() async {
+    if (_checking) return;
+    _checking = true;
+    final attempt = ++_attempt;
     setState(() {
       _loading = true;
       _error = null;
@@ -55,40 +62,38 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       final response = await _client
           .get(Uri.parse('$apiBaseUrl/api/ready'))
           .timeout(const Duration(seconds: 5));
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      final String? error;
-      if (response.statusCode != 200) {
-        error = body['error']?['code'] == 'DEPENDENCIES_UNAVAILABLE'
-            ? 'The API is running, but its dependencies are unavailable. Please retry.'
-            : 'Could not connect to the API. Check your connection and retry.';
-      } else {
-        final data = body['data'];
-        if (data?['status'] != 'ok' ||
-            data?['dependencies']?['postgres'] != 'ok' ||
-            data?['dependencies']?['redis'] != 'ok' ||
-            body['requestId'] is! String) {
-          throw const FormatException('Unexpected readiness response');
-        }
-        error = null;
-      }
-      if (!mounted) return;
+      final readiness = parseReadiness(
+        response.statusCode,
+        jsonDecode(response.body),
+      );
+      if (!mounted || attempt != _attempt) return;
       setState(() {
-        _error = error;
-        _requestId = body['requestId'] as String?;
+        _error = readiness.error;
+        _requestId = readiness.requestId;
         _loading = false;
       });
-    } catch (_) {
-      if (!mounted) return;
+    } catch (error, stack) {
+      assert(() {
+        debugPrint(
+          'API readiness failed (${error.runtimeType}): $error\n$stack',
+        );
+        return true;
+      }());
+      if (!mounted || attempt != _attempt) return;
       setState(() {
         _loading = false;
-        _error =
-            'Could not connect to the API. Check your connection and retry.';
+        _error = error is FormatException
+            ? unexpectedResponseMessage
+            : connectionErrorMessage;
       });
+    } finally {
+      if (attempt == _attempt) _checking = false;
     }
   }
 
   @override
   void dispose() {
+    _attempt++;
     if (widget.client == null) _client.close();
     super.dispose();
   }

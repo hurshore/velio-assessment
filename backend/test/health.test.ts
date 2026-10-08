@@ -8,7 +8,7 @@ test('process health stays available when dependencies fail', async () => {
   const app = createApp({
     postgres: { query: async () => { throw new Error('database unavailable'); } },
     redis: { ping: async () => { throw new Error('redis unavailable'); } },
-  });
+  }, 'http://localhost:5173', () => {});
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   try {
@@ -34,7 +34,7 @@ for (const failing of ['none', 'postgres', 'redis', 'both'] as const) {
         if (failing === 'redis' || failing === 'both') throw new Error('private-redis-password');
         return 'PONG';
       } },
-    });
+    }, 'http://localhost:5173', () => {});
     const server = app.listen(0, '127.0.0.1');
     await once(server, 'listening');
     try {

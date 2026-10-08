@@ -1,46 +1,51 @@
 import pg from 'pg';
 import { createClient } from 'redis';
 import { createApp } from './app.js';
+import { createShutdown } from './shutdown.js';
+import { reportFailure } from './diagnostics.js';
+import { dependencyTimeoutMs } from './readiness.js';
 import { loadConfig } from './config.js';
 
 const config = loadConfig();
 const postgres = new pg.Pool({
   connectionString: config.databaseUrl,
-  connectionTimeoutMillis: 1500,
-  query_timeout: 1500,
-  statement_timeout: 1500,
+  connectionTimeoutMillis: dependencyTimeoutMs,
+  query_timeout: dependencyTimeoutMs,
+  statement_timeout: dependencyTimeoutMs,
 });
-postgres.on('error', () => console.error('PostgreSQL connection interrupted'));
+postgres.on('error', error => reportFailure({ component: 'postgres' }, error));
 const redis = createClient({
   url: config.redisUrl,
   disableOfflineQueue: true,
-  socket: { connectTimeout: 1500, reconnectStrategy: retries => Math.min(100 * (retries + 1), 2000) },
+  socket: { connectTimeout: dependencyTimeoutMs, reconnectStrategy: retries => Math.min(100 * (retries + 1), 2000) },
 });
-redis.on('error', () => console.error('Redis connection interrupted'));
-void redis.connect().catch(() => console.error('Redis initial connection failed'));
+redis.on('error', error => reportFailure({ component: 'redis' }, error));
+void redis.connect().catch(error => reportFailure({ component: 'redis.connect' }, error));
 
 const app = createApp({
   postgres,
-  redis: { ping: () => redis.withCommandOptions({ abortSignal: AbortSignal.timeout(1500) }).ping() },
+  redis: { ping: () => redis.withCommandOptions({ abortSignal: AbortSignal.timeout(dependencyTimeoutMs) }).ping() },
 }, config.webOrigin);
 const server = app.listen(config.port, config.host, () => {
   console.log(`Velio API listening on ${config.host}:${config.port}`);
 });
-server.on('error', () => {
-  console.error('API listener failed');
-  void shutdown(1);
+const shutdown = createShutdown({
+  http: () => new Promise<void>((resolve, reject) => server.close(error => {
+    if (error && (!('code' in error) || error.code !== 'ERR_SERVER_NOT_RUNNING')) reject(error);
+    else resolve();
+  })),
+  redis: async () => { if (redis.isOpen) redis.destroy(); },
+  postgres: () => postgres.end(),
 });
-let stopping = false;
-async function shutdown(exitCode = 0) {
-  if (stopping) return;
-  stopping = true;
-  const deadline = setTimeout(() => process.exit(1), 5000);
-  deadline.unref();
-  await new Promise<void>(resolve => server.close(() => resolve()));
-  if (redis.isOpen) redis.destroy();
-  await postgres.end();
-  clearTimeout(deadline);
-  process.exitCode = exitCode;
+function stop(exitCode = 0) {
+  void shutdown(exitCode).then(code => { process.exitCode = code; }).catch(error => {
+    reportFailure({ component: 'shutdown' }, error);
+    process.exitCode = 1;
+  });
 }
-process.on('SIGINT', () => void shutdown());
-process.on('SIGTERM', () => void shutdown());
+server.on('error', error => {
+  reportFailure({ component: 'http.listener' }, error);
+  stop(1);
+});
+process.on('SIGINT', () => stop());
+process.on('SIGTERM', () => stop());

@@ -1,16 +1,17 @@
-function required(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} is required; run npm run setup`);
-  return value;
-}
+import { apiPort, httpOrigin } from '../../scripts/local-api.mjs';
 
-export function loadConfig() {
-  const port = Number(process.env.PORT ?? 3000);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be an integer from 1 to 65535');
+const defaultWebOrigin = 'http://localhost:5173';
+
+export function loadConfig(env: Record<string, string | undefined> = process.env) {
+  function required(name: string): string {
+    const value = env[name];
+    if (!value?.trim()) throw new Error(`${name} is required; fill the missing entry in .env (npm run setup reports missing keys). Preserve existing credentials.`);
+    return value;
+  }
   return {
-    port,
-    host: process.env.HOST ?? '0.0.0.0',
-    webOrigin: process.env.WEB_ORIGIN ?? 'http://localhost:5173',
+    port: apiPort(env),
+    host: env.HOST ?? '127.0.0.1',
+    webOrigin: httpOrigin(env.WEB_ORIGIN ?? defaultWebOrigin, 'WEB_ORIGIN'),
     databaseUrl: required('DATABASE_URL'),
     redisUrl: required('REDIS_URL'),
   };

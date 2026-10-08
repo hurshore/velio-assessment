@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 
-type Connection = { status: 'loading' } | { status: 'ready'; requestId: string } | { status: 'error'; message: string; requestId?: string };
+import { parseReadiness, connectionErrorMessage, unexpectedResponseMessage, type Readiness } from './readiness';
+
+type Connection = { status: 'loading' } | Readiness;
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
 
 export function App() {
@@ -8,25 +10,24 @@ export function App() {
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(new Error('Connection timed out')), 5000);
+    const timeout = setTimeout(() => controller.abort(), 5000);
     let active = true;
     setConnection({ status: 'loading' });
     void fetch(`${apiBase}/api/ready`, { signal: controller.signal })
       .then(async response => {
-        const body = await response.json();
-        if (!active) return;
-        if (!response.ok) {
-          setConnection({ status: 'error', message: body.error?.code === 'DEPENDENCIES_UNAVAILABLE'
-            ? 'The API is running, but its dependencies are unavailable. Please retry.'
-            : 'Could not connect to the API. Check your connection and retry.', requestId: body.requestId });
+        let readiness: Readiness;
+        try { readiness = parseReadiness(response.status, await response.json()); }
+        catch (error) {
+          if (controller.signal.aborted) throw error;
+          if (active) {
+            console.warn('API readiness response rejected:', error);
+            setConnection({ status: 'error', message: unexpectedResponseMessage });
+          }
           return;
         }
-        if (body.data?.status !== 'ok' || body.data?.dependencies?.postgres !== 'ok' || body.data?.dependencies?.redis !== 'ok' || typeof body.requestId !== 'string') {
-          throw new Error('Unexpected readiness response');
-        }
-        setConnection({ status: 'ready', requestId: body.requestId });
+        if (active) setConnection(readiness);
       })
-      .catch(() => { if (active) setConnection({ status: 'error', message: 'Could not connect to the API. Check your connection and retry.' }); })
+      .catch(() => { if (active) setConnection({ status: 'error', message: connectionErrorMessage }); })
       .finally(() => clearTimeout(timeout));
     return () => { active = false; clearTimeout(timeout); controller.abort(); };
   }, [attempt]);

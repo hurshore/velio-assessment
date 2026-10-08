@@ -5,7 +5,7 @@ import 'package:velio_mobile/main.dart' as app;
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
-  testWidgets('iOS status screen completes a real API readiness roundtrip', (
+  testWidgets('status screen completes a real API readiness roundtrip', (
     tester,
   ) async {
     app.main();
