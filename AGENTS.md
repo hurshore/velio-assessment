@@ -1,5 +1,9 @@
 ## Agent skills
 
+### Contribution and coding conventions
+
+Before implementation or review, read and follow `CONTRIBUTING.md` and `CODING_STANDARDS.md`. When creating PRs, use `.github/pull_request_template.md`.
+
 ### Implementation plan
 
 Read root `PLANS.md` before planning, ticketing, or implementing work. It is the authoritative product and technical plan. Tickets must identify relevant sections. Flag proposed deviations and record their reasoning in section 6, the decision log, preserving the original reasoning. Implement the existing plan without generating a competing specification or restarting discovery through Wayfinder.
