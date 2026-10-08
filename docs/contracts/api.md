@@ -1,0 +1,45 @@
+# Shared API contract, version 1
+
+Foundation for PLANS.md §2.3–2.6 and §4.1. The health routes below exist now; domain routes, persistence, and events are owned by subsequent tickets. Changes to planned decisions must be recorded in PLANS.md §6.
+
+## HTTP boundary
+
+JSON under `/api`. Successful responses: `{ "data": <payload>, "requestId": "<server UUID>" }`. Errors: `{ "error": { "code": "NOT_FOUND", "message": "...", "retryable": false }, "requestId": "<server UUID>" }`. The server emits the same UUID in `X-Request-Id`; clients display safe messages and keep this reference for diagnosis. No stack traces or dependency credentials are returned. Dates are UTC ISO-8601 strings; activity display includes its IANA timezone. Monetary amounts are integer minor units plus currency.
+
+- `GET /api/health`: 200, data `{ "status": "ok", "service": "velio-api" }`; process liveness only.
+- `GET /api/ready`: checks PostgreSQL `SELECT 1` and Redis `PING` on each request; 200 data `{ "status": "ok", "dependencies": { "postgres": "ok", "redis": "ok" } }`. A dependency failure returns 503 with code `DEPENDENCIES_UNAVAILABLE`, retryable true. Readiness probes are bounded; liveness stays available during outages.
+- Unknown paths: 404 `NOT_FOUND`. Invalid JSON: 400 `INVALID_JSON`. Oversized JSON: 413 `PAYLOAD_TOO_LARGE`. Unexpected errors: 500 `INTERNAL_ERROR`, retryable true.
+
+Initial domain error vocabulary: `INVALID_REQUEST` (400), `IDENTITY_REQUIRED` (401), `RECIPIENT_MISMATCH`/`INVITE_NOT_ALLOWED` (403), `NOT_FOUND`/`INVALID_INVITE` (404), `SOLD_OUT`/`ALREADY_REDEEMED`/`IDEMPOTENCY_CONFLICT` (409), `INVITE_EXPIRED`/`ACTIVITY_STARTED` (410), and `TEMPORARILY_UNAVAILABLE` (503). Clients must inspect codes rather than parse messages. Domain tickets finalize endpoint payloads against the canonical plan; these names do not claim those routes exist.
+
+## Booking writes and identity
+
+Demo identity is explicitly selected and persisted; it is not production authentication. Future writes carry the selected actor and `Idempotency-Key` (opaque UUID retained across uncertain outcomes). The server scopes keys by actor/operation and fingerprints payloads. Same key/same intent returns the committed result; changed payload returns `IDEMPOTENCY_CONFLICT`. A retry or own-booking lookup recovers confirmation before showing failure. Different keys still consume only one seat per user/activity. A transaction rollback leaves the intent retryable. Booking responses contain the committed booking, plan membership, price snapshot, and authoritative availability.
+
+## Invitations and acquisition
+
+`rail` is exactly `vouch` or `public`. Vouches are bound to one intended demo contact; public links allow distinct guests while capacity exists. Neither reserves seats. Codes are opaque server-issued values. Requests supply a code, never fabricated inviter, rail, root, or generation. Public previews exclude contacts. Expiry is the earlier of 24 hours after creation and activity start. Existing-booking recovery preserves its original attribution.
+
+Signup generation is immutable product acquisition history: organic 0, new invite signup = inviter generation + 1, frozen parent/root and acquisition rail. Returning users retain signup history; later booking attribution is separate. Invites snapshot the inviter's signup ancestry.
+
+## Events and guest journeys
+
+Schema version `1`. Event envelope: `id` (UUID), `schemaVersion`, `name`, `occurredAt` (UTC), `source` (`server`/`client`), `platform` (`web`/`mobile`), optional `actorId`/persistent anonymous `journeyId`, relevant entity IDs, authoritative `rail`/`generation`, experiment version/assignment, outcome/reason, and synthetic marker. Optional fields are omitted when unknown, never invented. IDs deduplicate ingestion.
+
+Persist a random guest journey ID before rendering an invite; retain it across opens, identity creation, and uncertain claims. `invite_opened` means a human rendered the preview, including full/expired states; link-preview GETs are not opens. Server success events persist atomically with their domain changes; attempt/failure telemetry survives rollback. No contact data in analytics. Event names and metric windows follow PLANS.md §4.1–4.2.
+
+## Versioned availability
+
+Snapshot: `{ "eventId": "<UUID>", "activityId": "...", "version": 1, "capacity": 2, "confirmedCount": 1, "remainingSeats": 1 }`. Versions increase with committed changes; counts come from PostgreSQL. Redis publication uses the durable outbox. Clients ignore duplicate/older versions, subscribe with snapshot recovery, reconcile periodically, and refresh on foreground/reconnect. ACK `{ "activityId": "...", "version": 1, "eventId": "..." }` only after visible application. Cached/offline capacity is labelled stale and cannot enable a claim. WebSocket endpoint/message names and event storage arrive with the live/tracking tickets.
+
+## CORS and readiness validation
+
+The allowed WEB_ORIGIN is one validated HTTP(S) origin, normalized to its browser form. Preflight permits GET/POST/OPTIONS and Content-Type, Idempotency-Key, and X-Demo-Actor-Id (the planned demo identity header). Unapproved origins, methods, or headers receive 403 CORS_REQUEST_DENIED; unapproved origins are never reflected. Responses vary by Origin and preflight request method/headers. No cookie-credential CORS mode is enabled.
+
+Both clients require an object envelope with a nonempty string request reference. A 200 readiness response must have status=ok and both dependencies ok; an error response must have a nonempty string code/message and boolean retryability. Unknown valid codes use safe connection guidance. Malformed/non-JSON responses show “The API returned an unexpected response. Please retry.” and never render unchecked reference fields. [Shared fixtures](readiness-fixtures.json) exercise error/malformed payload parity in both UI suites; request references are treated as opaque strings, while the API generates UUIDs.
+
+## Mobile transport follow-up M7
+
+**Deferred from issue #1 hardening; reference: foundation/mobile-readiness-transport-cancellation (M7).** The current five-second timeout bounds the visible check but does not cancel the underlying http.Client.get. Same-frame checks are serialized and stale/disposed results cannot update visible state. A retry after timeout can still coexist with an abandoned transport request until completion or disposal; this limitation is deliberately retained here.
+
+At the mobile guest-flow implementation boundary (PLANS.md §3.3), choose a supported request-cancellation mechanism or per-attempt owned transport, retain the pending claim's idempotency key, and test actual socket termination on timeout/dispose plus repeated timeout/retry cycles. Do not close a caller-owned injected client. Acceptance: each abandoned readiness request releases its transport resources, no late completion changes current UI, and booking recovery remains safe. No transport redesign or booking work is included in this hardening commit.

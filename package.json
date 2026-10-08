@@ -1,0 +1,32 @@
+{
+  "name": "velio-assessment",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "backend",
+    "web"
+  ],
+  "engines": {
+    "node": "24.21.0",
+    "npm": "11.19.0"
+  },
+  "packageManager": "npm@11.19.0",
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "infra:up": "docker compose up -d --wait",
+    "infra:down": "docker compose down",
+    "migrate": "npm run migrate --workspace backend",
+    "dev": "node scripts/dev.mjs",
+    "dev:backend": "npm run dev --workspace backend",
+    "dev:web": "npm run dev --workspace web",
+    "typecheck": "npm run typecheck --workspaces",
+    "build": "npm run build --workspaces",
+    "test": "node --test scripts/test/*.test.mjs && npm run test --workspaces",
+    "mobile:get": "cd mobile && flutter pub get --enforce-lockfile",
+    "mobile:check": "cd mobile && flutter analyze && flutter test",
+    "mobile:run": "node scripts/mobile.mjs",
+    "verify": "npm run typecheck && npm test && npm run build && npm run mobile:check",
+    "smoke": "node scripts/smoke.mjs"
+  }
+}
