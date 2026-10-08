@@ -9,7 +9,7 @@
     "migrate": "node --env-file=../.env --import tsx src/migrate.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
-    "test": "node --env-file-if-exists=../.env --import tsx --test test/*.test.ts",
+    "test": "node --env-file-if-exists=../.env --import tsx --test --test-concurrency=1 test/*.test.ts",
     "seed": "node --env-file=../.env --import tsx src/seed.ts"
   },
   "dependencies": {

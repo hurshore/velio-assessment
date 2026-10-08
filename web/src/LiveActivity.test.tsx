@@ -6,6 +6,7 @@ import { ViewDelivery } from './view-delivery';
 const actorId = '11111111-1111-4111-8111-111111111111';
 const activity = { id: '22222222-2222-4222-8222-222222222222', hostId: actorId, title: 'Live walk', description: 'Along the marina', meetingLocation: 'Marina gate',
   startsAt: '2030-01-15T07:00:00Z', timezone: 'Africa/Lagos', capacity: 1, confirmedCount: 0, remainingSeats: 1, priceMinor: 0, currency: 'NGN',
+  assignment: { experiment: 'group_invites_v1', version: '1', treatmentPercent: 50, variant: 'treatment', assignedAt: '2026-10-08T12:00:00Z' }, invitePolicy: { creationEnabled: true, allowed: true, reason: 'allowed' },
   version: 1, status: 'scheduled', planId: '33333333-3333-4333-8333-333333333333', participants: [] as { id: string; displayName: string }[] };
 class Socket {
   static OPEN = 1;
@@ -140,4 +141,42 @@ test('foreground return gives the healthy socket a fresh watchdog window', async
   act(() => socket.snapshot());
   expect(screen.getByText('Live availability connected.')).toBeTruthy();
   vi.restoreAllMocks();
+});
+
+test('shared live availability retains the actor-specific invitation policy from HTTP', async () => {
+  const socket=setup();
+  await screen.findByText('This activity is assigned to the invitation experience.');
+  act(()=>{socket.open();socket.snapshot({...activity,version:2,invitePolicy:{creationEnabled:true,allowed:false,reason:'host_or_booker_required'}});});
+  expect(screen.getByText('This activity is assigned to the invitation experience.')).toBeTruthy();
+  expect(screen.queryByText('Book a seat or host this activity to create invitations.')).toBeNull();
+});
+
+test('actor refresh merges policy with newer live membership and ACKs only after the new view renders', async () => {
+  vi.stubGlobal('WebSocket',Socket);
+  const nextActor='44444444-4444-4444-8444-444444444444';
+  let finish!: (response:Response)=>void;
+  vi.stubGlobal('fetch',vi.fn(async(url:string,options:RequestInit)=> {
+    if(url.endsWith('/events')) return new Response(JSON.stringify({data:{accepted:true},requestId:'actor-live'}));
+    if((options.headers as Record<string,string>)['X-Demo-Actor-Id']===nextActor) return new Promise<Response>(resolve=>{finish=resolve;});
+    return new Response(JSON.stringify({data:activity,requestId:'actor-live'}));
+  }));
+  const delivery=new ViewDelivery();
+  const view=render(<ActivityDetails id={activity.id} actorId={actorId} journeyId={actorId} close={()=>{}} delivery={delivery}/>);
+  await screen.findByText('Marina gate');
+  const socket=Socket.instances[0]!;
+  act(()=>{socket.open();socket.snapshot();});
+  view.rerender(<ActivityDetails id={activity.id} actorId={nextActor} journeyId={actorId} close={()=>{}} delivery={delivery}/>);
+  const eventId=crypto.randomUUID();
+  const full={...activity,version:2,remainingSeats:0,confirmedCount:1,participants:[{id:actorId,displayName:'Tunde'}]};
+  act(()=>socket.snapshot(full,eventId));
+  expect(socket.sent.some(message=>message.type==='ack')).toBe(false);
+  let acknowledged=false;
+  socket.onSend=message=>{
+    if(message.type!=='ack') return;
+    expect(screen.getByText('0 of 1 seats remaining · 1 confirmed')).toBeTruthy();
+    expect(screen.getByText('Book a seat or host this activity to create invitations.')).toBeTruthy();
+    expect(screen.getByRole('listitem').textContent).toBe('Tunde'); acknowledged=true;
+  };
+  await act(async()=>finish(new Response(JSON.stringify({data:{...activity,invitePolicy:{creationEnabled:true,allowed:false,reason:'host_or_booker_required'}},requestId:'actor-live'}))));
+  await waitFor(()=>expect(acknowledged).toBe(true));
 });

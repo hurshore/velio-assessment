@@ -42,6 +42,7 @@ const app = createApp({
   committed: event => live?.committed(event),
   liveHealth: () => live!.health(),
   postgres,
+  invites: config.invites,
   redis: { ping: () => redis.withCommandOptions({ abortSignal: AbortSignal.timeout(dependencyTimeoutMs) }).ping() },
 }, config.webOrigin);
 const server = app.listen(config.port, config.host, () => {

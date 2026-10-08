@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { liveUrl, parseActivityDetail, type ActivityDetail } from './api';
 
-export function useLiveActivity(id: string, detail: ActivityDetail | null, setDetail: Dispatch<SetStateAction<ActivityDetail | null>>) {
+export function useLiveActivity(id: string, detail: ActivityDetail | null, setDetail: Dispatch<SetStateAction<ActivityDetail | null>>, rendered = true) {
   const [status, setStatus] = useState('Connecting to live availability…');
   const [stale, setStale] = useState(true);
   const [received, setReceived] = useState(0);
@@ -34,7 +34,11 @@ export function useLiveActivity(id: string, detail: ActivityDetail | null, setDe
           if (activity.id !== id || message.activityId !== id || message.version !== activity.version ||
               (message.eventId !== null && typeof message.eventId !== 'string')) throw new Error('Invalid live snapshot');
           lastSnapshot = Date.now(); backoff = 500;
-          setDetail(previous => !previous || activity.version > previous.version ? activity : previous);
+          setDetail(previous => {
+            if (previous?.id === activity.id && activity.version <= previous.version) return previous;
+            // The live stream carries shared availability, not this actor's invitation authorization.
+            return previous?.id === activity.id ? { ...activity, invitation: previous.invitation, assignment: previous.assignment, invitePolicy: previous.invitePolicy } : activity;
+          });
           if (message.eventId) acknowledgements.current.set(message.eventId, activity.version);
           setReceived(value => value + 1);
           setStale(false); setStatus('Live availability connected.');
@@ -73,12 +77,12 @@ export function useLiveActivity(id: string, detail: ActivityDetail | null, setDe
   // Effects run after the committed DOM contains this version and its participants.
   useEffect(() => {
     const current = socket.current;
-    if (!detail || document.visibilityState === 'hidden' || current?.readyState !== WebSocket.OPEN) return;
+    if (!rendered || !detail || document.visibilityState === 'hidden' || current?.readyState !== WebSocket.OPEN) return;
     for (const [eventId, version] of acknowledgements.current) {
       if (detail.version < version) continue;
       current.send(JSON.stringify({ type: 'ack', eventId, activityId: id, version }));
       acknowledgements.current.delete(eventId);
     }
-  }, [detail, received, id]);
+  }, [detail, received, id, rendered]);
   return { status, stale };
 }

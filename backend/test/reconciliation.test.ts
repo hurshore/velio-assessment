@@ -30,10 +30,10 @@ test('reconciliation uses an activity-leading index across representative unrela
   const users = (await owner.query(`WITH identities AS (SELECT gen_random_uuid() AS id FROM generate_series(1,200))
     INSERT INTO users (id,display_name,generation,acquisition_root_id,synthetic,test)
     SELECT id,'Synthetic query-plan actor',0,id,true,true FROM identities RETURNING id`)).rows.map(row => row.id);
-  const activities = (await owner.query(`INSERT INTO activities
+  const activities = (await owner.query(`WITH inserted AS (INSERT INTO activities
     (host_id,title,description,meeting_location,starts_at,timezone,capacity,confirmed_count,price_minor,currency)
     SELECT $1,'Synthetic history','Reconciliation plan measurement','Test gate','2030-01-15','UTC',200,200,0,'NGN'
-    FROM generate_series(1,500) RETURNING id`, [users[0]])).rows.map(row => row.id);
+    FROM generate_series(1,500) RETURNING id) SELECT assign_invite_experiment(id,'reconciliation-fixture',50) AS id FROM inserted`, [users[0]])).rows.map(row => row.id);
   await owner.query(`INSERT INTO bookings (activity_id,plan_id,user_id,price_minor,currency)
     SELECT a.id,p.id,u.id,0,'NGN' FROM activities a JOIN plans p ON p.activity_id=a.id CROSS JOIN users u
     WHERE a.id=ANY($1::uuid[]) AND u.id=ANY($2::uuid[])`, [activities, users]);
