@@ -19,7 +19,7 @@ export function useLiveActivity(id: string, detail: ActivityDetail | null, setDe
       lastSnapshot = Date.now();
       let current: WebSocket;
       try { current = new WebSocket(liveUrl()); }
-      catch { setStatus('Live connection unavailable. Details may be stale.'); return; }
+      catch { setStatus('Live connection unavailable. Details may be stale.'); retry = setTimeout(connect, backoff); backoff = Math.min(3000, backoff * 2); return; }
       socket.current = current;
       current.onopen = () => {
         if (stopped || socket.current !== current) return;
@@ -54,7 +54,7 @@ export function useLiveActivity(id: string, detail: ActivityDetail | null, setDe
     function foreground() {
       const current = socket.current;
       if (document.visibilityState === 'hidden') { setStale(true); setStatus('Live updates paused while this page is hidden.'); }
-      else { setStale(true); setStatus('Refreshing live availability…'); }
+      else { lastSnapshot = Date.now(); setStale(true); setStatus('Refreshing live availability…'); }
       if (current?.readyState === WebSocket.OPEN) current.send(JSON.stringify({ type: 'foreground', foreground: document.visibilityState !== 'hidden' }));
     }
     const watchdog = setInterval(() => {

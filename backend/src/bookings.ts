@@ -91,9 +91,10 @@ export async function bookSeat(db: BookingDatabase, intent: Intent, actor: Actor
         result = { booking: booking!, availability: updated, replayed: false };
         await event(connection, 'booking_succeeded', intent, actor, { eligibility, outcome: 'committed' }, booking);
         const outboxId = randomUUID();
-        committedEvent = { eventId: outboxId, ...updated, bookingId: booking!.id, createdAt: new Date().toISOString() };
-        await connection.query(`INSERT INTO outbox_events (id,name,activity_id,booking_id,version,payload,origin_process_id)
-          VALUES ($1,'availability_updated',$2,$3,$4,$5,$6)`, [outboxId, intent.activityId, booking!.id, updated.version, { eventId: outboxId, ...updated }, processId ?? null]);
+
+        const [outbox] = await rows<{ createdAt: Date }>(connection, `INSERT INTO outbox_events (id,name,activity_id,booking_id,version,payload,origin_process_id)
+          VALUES ($1,'availability_updated',$2,$3,$4,$5,$6) RETURNING created_at AS "createdAt"`, [outboxId, intent.activityId, booking!.id, updated.version, { eventId: outboxId, ...updated }, processId ?? null]);
+        committedEvent = { eventId: outboxId, ...updated, bookingId: booking!.id, createdAt: outbox!.createdAt.toISOString() };
       }
       await connection.query(`UPDATE idempotency_keys SET result=$3 WHERE actor_id=$1 AND operation='book_activity' AND key=$2`, [actor.id, intent.key, result]);
     }
@@ -119,7 +120,7 @@ export async function bookSeat(db: BookingDatabase, intent: Intent, actor: Actor
   return { ...result, telemetry: telemetryFailed ? 'degraded' : 'ok' };
 }
 
-export function bookingRoutes(db: BookingDatabase, logFailure: FailureReporter, committed?: (event: AvailabilityEvent) => void, processId?: string) {
+export function bookingRoutes(db: BookingDatabase, logFailure: FailureReporter, options: { committed?: (event: AvailabilityEvent) => void; processId?: string; workStarted?: () => () => void } = {}) {
   const router = Router();
   async function actor(value: string | undefined): Promise<Actor> {
     if (!value) throw new DomainError(401, 'IDENTITY_REQUIRED', 'Select a demo identity before booking.');
@@ -140,21 +141,24 @@ export function bookingRoutes(db: BookingDatabase, logFailure: FailureReporter, 
     response.json({ data: state.state, requestId: response.locals.requestId });
   });
   router.post('/:id/bookings', async (request, response) => {
-    let intent: Intent;
-    let user: Actor | undefined;
+    const completed = options.workStarted?.();
     try {
-      user = await actor(request.get('X-Demo-Actor-Id'));
-      const body = object(request.body);
-      exact(body, ['platform', 'journeyId']);
-      intent = { actorId: user.id, activityId: uuid(request.params.id, 'Activity').toLowerCase(), key: text(request.get('Idempotency-Key'), 'Idempotency key', 128),
-        platform: platform(body.platform), journeyId: uuid(body.journeyId, 'Journey'), requestId: response.locals.requestId };
-    } catch (error) {
-      await recordInvalidBooking(db, { requestId: response.locals.requestId, actorId: request.get('X-Demo-Actor-Id'), activityId: request.params.id,
-        code: error instanceof DomainError ? error.code : 'TECHNICAL_ERROR', technical: !(error instanceof DomainError) }, logFailure);
-      throw error;
-    }
-    const result = await bookSeat(db, intent, user, logFailure, committed, processId);
-    response.status(result.replayed ? 200 : 201).json({ data: result, requestId: response.locals.requestId });
+      let intent: Intent;
+      let user: Actor | undefined;
+      try {
+        user = await actor(request.get('X-Demo-Actor-Id'));
+        const body = object(request.body);
+        exact(body, ['platform', 'journeyId']);
+        intent = { actorId: user.id, activityId: uuid(request.params.id, 'Activity').toLowerCase(), key: text(request.get('Idempotency-Key'), 'Idempotency key', 128),
+          platform: platform(body.platform), journeyId: uuid(body.journeyId, 'Journey'), requestId: response.locals.requestId };
+      } catch (error) {
+        await recordInvalidBooking(db, { requestId: response.locals.requestId, actorId: request.get('X-Demo-Actor-Id'), activityId: request.params.id,
+          code: error instanceof DomainError ? error.code : 'TECHNICAL_ERROR', technical: !(error instanceof DomainError) }, logFailure);
+        throw error;
+      }
+      const result = await bookSeat(db, intent, user, logFailure, options.committed, options.processId);
+      response.status(result.replayed ? 200 : 201).json({ data: result, requestId: response.locals.requestId });
+    } finally { completed?.(); }
   });
   return router;
 }

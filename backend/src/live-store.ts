@@ -1,3 +1,4 @@
+import { deliveryTargetMs } from './live-policy.js';
 import { randomUUID } from 'node:crypto';
 import { rows, type Database } from './domain.js';
 import type { AvailabilityEvent } from './outbox.js';
@@ -16,13 +17,13 @@ export async function saveObservation(db: Database, processId: string, observati
     VALUES ($1,$2,$3,$7::timestamptz,$8,$4) ON CONFLICT DO NOTHING RETURNING event_id
   ) INSERT INTO live_deliveries (event_id,process_id,connection_id,client_id,deadline)
     SELECT $1,$2,connection_id,client_id,
-      CASE WHEN $3='commit_observed' THEN $7::timestamptz+interval '2 seconds' ELSE $5::timestamptz+interval '2 seconds' END
+      CASE WHEN $3='commit_observed' THEN $7::timestamptz+($9*interval '1 millisecond') ELSE $5::timestamptz+($9*interval '1 millisecond') END
     FROM jsonb_to_recordset($6::jsonb) AS subscriber(connection_id uuid,client_id uuid)
     WHERE EXISTS (SELECT 1 FROM observation)`, [event.eventId, processId, timing, subscribers.length, event.createdAt,
-      JSON.stringify(subscribers.map(s => ({ connection_id: s.connectionId, client_id: s.clientId }))), observedAt, started]);
+      JSON.stringify(subscribers.map(s => ({ connection_id: s.connectionId, client_id: s.clientId }))), observedAt, started, deliveryTargetMs]);
 }
 export async function recoverDelivery(db: Database, processId: string, connectionId: string, eventId: string): Promise<DeliveryClock | undefined> {
-  const [delivery] = await rows<{ payload: AvailabilityEvent; bookingId: string; createdAt: Date; timing: Timing; started: number; sentVersion: number }>(db, `
+  const [delivery] = await rows<{ payload: Omit<AvailabilityEvent,'bookingId'|'createdAt'>; bookingId: string; createdAt: Date; timing: Timing; started: number; sentVersion: number }>(db, `
     SELECT e.payload,e.booking_id AS "bookingId",e.created_at AS "createdAt",o.timing,o.started_clock AS started,d.sent_version AS "sentVersion"
     FROM live_deliveries d JOIN live_observations o USING (event_id,process_id) JOIN outbox_events e ON e.id=d.event_id
     WHERE d.event_id=$1 AND d.process_id=$2 AND d.connection_id=$3 AND d.ack_at IS NULL AND d.sent_version IS NOT NULL`, [eventId, processId, connectionId]);

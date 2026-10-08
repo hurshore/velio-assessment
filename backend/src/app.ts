@@ -13,6 +13,8 @@ export interface Dependencies {
   postgres: BookingDatabase;
   redis: { ping: () => Promise<string> };
   liveProcessId?: string;
+  accepting?: () => boolean;
+  requestStarted?: () => () => void;
   committed?: (event: AvailabilityEvent) => void;
   liveHealth?: () => { processId: string; measurementFailures: number };
 }
@@ -52,6 +54,16 @@ export function createApp(dependencies: Dependencies, webOrigin: string, logFail
     }
     next();
   });
+  app.use((_request, response, next) => {
+    if (dependencies.accepting && !dependencies.accepting()) return next(new DomainError(503, 'SHUTTING_DOWN', 'API is shutting down. Retry on a healthy connection.'));
+    const completed = dependencies.requestStarted?.();
+    if (completed) {
+      let done = false;
+      const finish = () => { if (!done) { done = true; completed(); } };
+      response.once('finish', finish); response.once('close', finish);
+    }
+    next();
+  });
   app.use(express.json({ limit: '16kb' }));
   app.get('/api/health', (_request, response) => {
     response.json({ data: { status: 'ok', service: 'velio-api' }, requestId: response.locals.requestId });
@@ -76,7 +88,7 @@ export function createApp(dependencies: Dependencies, webOrigin: string, logFail
   });
   app.use('/api/metrics', liveMetricsRoutes(dependencies.postgres, dependencies.liveHealth));
   app.use('/api/events', eventRoutes(dependencies.postgres));
-  app.use('/api/activities', bookingRoutes(dependencies.postgres, logFailure, dependencies.committed, dependencies.liveProcessId));
+  app.use('/api/activities', bookingRoutes(dependencies.postgres, logFailure, { committed: dependencies.committed, processId: dependencies.liveProcessId, workStarted: dependencies.requestStarted }));
   app.use('/api/activities', activityRoutes(dependencies.postgres));
   app.use('/api/identities', identityRoutes(dependencies.postgres));
   app.use((_request, response) => {

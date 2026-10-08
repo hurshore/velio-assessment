@@ -13,3 +13,5 @@ Host migrations require `RUNTIME_DB_USER` naming the existing runtime login. The
 `004` adds `bookings(activity_id) INCLUDE (id)` to keep activity-scoped reconciliation and participant reads from scanning unrelated membership. The reconciliation view, row-lock ordering and capacity constraints are unchanged. A representative 100,000-booking plan comparison is captured in [the booking verification report](../../docs/verification/seat-booking.md).
 
 `005` adds expiring outbox dispatch leases/retry scheduling, a booking-transaction origin process marker, durable gateway lifetimes, and live observation/delivery records. Runtime can insert observation denominators and delivery expectations, and update only gateway stop timestamps, issued snapshot versions and ACK timestamps/delays. Booking-owned payloads and immutable booking/referral history remain protected.
+
+`006` indexes persisted outbox creation/origin ranges and exact observation times used by bounded reconciliation pages and windowed metrics. It changes no historical observation/delivery evidence.

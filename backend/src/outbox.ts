@@ -18,9 +18,11 @@ export async function dispatchOutbox(db: Database, publish: (message: string) =>
       await publish(JSON.stringify({ ...event.payload, bookingId: event.bookingId, createdAt: event.createdAt.toISOString() }));
       await db.query('UPDATE outbox_events SET dispatched_at=clock_timestamp(),lease_until=NULL WHERE id=$1 AND dispatched_at IS NULL', [event.id]);
     } catch (error) {
-      log({ component: 'outbox.publish', eventId: event.id }, error);
-      await db.query(`UPDATE outbox_events SET lease_until=NULL,retry_at=clock_timestamp()+($2*interval '1 millisecond')
-        WHERE id=$1 AND dispatched_at IS NULL`, [event.id, Math.min(30_000, 250 * 2 ** Math.min(event.attempts, 7))]);
+      log({ component: 'outbox.dispatch', eventId: event.id }, error);
+      try { await db.query(`UPDATE outbox_events SET lease_until=NULL,retry_at=clock_timestamp()+($2*interval '1 millisecond')
+        WHERE id=$1 AND dispatched_at IS NULL`, [event.id, Math.min(30_000, 250 * 2 ** Math.min(event.attempts, 7))]); } catch (retryError) {
+        log({ component: 'outbox.retry_metadata', eventId: event.id }, retryError);
+      }
     }
   }
   return events.length;

@@ -105,7 +105,7 @@ async function fixture(capacity = 3) {
 }
 function book(activityId: string, actorId: string) { return request(`/activities/${activityId}/bookings`, { platform: 'web', journeyId: randomUUID() }, actorId); }
 interface Snapshot { type: string; activityId: string; eventId: string | null; version: number; confirmedCount: number; remainingSeats: number; activity: { participants: unknown[] } }
-async function connect(activityId: string, api = base, foreground = true, clientId = randomUUID(), waitSnapshot = true) {
+async function connect(activityId: string, api = base, foreground = true, clientId: string = randomUUID(), waitSnapshot = true) {
   const socket = new WebSocket(api.replace('http:', 'ws:').replace('/api', '/api/live'), { origin });
   clients.push(socket);
   const messages: Snapshot[] = [];
@@ -141,13 +141,13 @@ test('two API processes deliver committed membership; a missing foreground ACK r
   const exact = measured.find(g => g.timing === 'commit_observed')!;
   const proxyGroup = measured.find(g => g.timing === 'pre_commit_proxy')!;
   assert.equal(exact.expectedDeliveries, 2); assert.equal(exact.acknowledged, 1);
-  assert.equal(exact.deliveryMisses, 1); assert.equal(exact.coverage, .5); assert.equal(exact.everyClientTargetMet, false);
-  assert.ok(exact.perBookingP95Ms >= 0 && exact.perBookingP95Ms < 2000);
-  assert.equal(exact.bookingsWithSubscribers, 1); assert.equal(exact.clients[0].samples, 1);
+  assert.equal(exact.deliveryMisses, 1); assert.equal(exact.eventualAckCoverage, .5); assert.equal(exact.everyClientTargetMet, false);
+  assert.ok(exact.ackOnlyPerBookingP95Ms >= 0 && exact.ackOnlyPerBookingP95Ms < 2000);
+  assert.equal(exact.bookingsWithSubscribers, 1); assert.equal(exact.clients.find((c: { acknowledged: number }) => c.acknowledged > 0).ackOnlySamples, 1);
   assert.equal(proxyGroup.expectedDeliveries, 1); assert.equal(proxyGroup.acknowledged, 1);
   assert.equal(hidden.messages.some(m => m.eventId), false);
   const excluded = (await request('/metrics/live')).data.groups;
-  assert.ok(excluded.every((g: Record<string, unknown>) => g.expectedDeliveries === 0 && g.coverage === null && g.everyClientTargetMet === null));
+  assert.ok(excluded.every((g: Record<string, unknown>) => g.expectedDeliveries === 0 && g.eventualAckCoverage === null && g.everyClientTargetMet === null));
   const reconciliation = (await owner.query('SELECT * FROM booking_reconciliation WHERE activity_id=$1', [activity.id])).rows[0];
   assert.equal(reconciliation.counter_mismatch, false); assert.equal(reconciliation.oversold, false);
   console.log('LIVE_MEASUREMENT', JSON.stringify({ exact, proxy: proxyGroup }));
@@ -210,7 +210,11 @@ test('slow delivery instrumentation counts a late ACK immediately rather than ex
     await until(async () => (await groups()).find(g => g.timing === 'commit_observed')!.acknowledged === baseline.acknowledged + 1);
     const exact = (await groups()).find(g => g.timing === 'commit_observed')!;
     assert.equal(exact.deliveryMisses, baseline.deliveryMisses + 1);
-    assert.ok(exact.perBookingMaxima.find((m: { eventId: string }) => m.eventId === delivered.eventId).maximumMs >= 2200);
+    assert.ok(exact.perBookingMaxima.find((m: { eventId: string }) => m.eventId === delivered.eventId).ackOnlyMaximumMs >= 2200);
+    const clock = (await owner.query(`SELECT o.timing,d.delay_ms FROM live_observations o JOIN live_deliveries d USING(event_id,process_id)
+      WHERE o.event_id=$1 AND o.expected=1`,[delivered.eventId])).rows[0];
+    assert.equal(clock.timing,'commit_observed');
+    assert.ok(clock.delay_ms >= 2200, 'Concurrent Redis publication cannot overwrite the exact clock while its write is delayed');
   } finally {
     await owner.query('DROP TRIGGER delay_live ON live_observations; DROP FUNCTION delay_live_observation()');
     client.socket.terminate();
@@ -281,7 +285,7 @@ test('50 overlapping bookings measure local commit-observed latency with complet
     percentile_disc(.95) WITHIN GROUP (ORDER BY delay_ms) AS p95, max(delay_ms) AS maximum
     FROM live_deliveries d JOIN outbox_events e ON e.id=d.event_id WHERE e.activity_id=$1`, [activity.id])).rows[0];
   assert.equal(maxima.length, 50); assert.equal(records.expected, 50); assert.equal(records.acknowledged, 50);
-  assert.equal(exact.clients.find((c: { clientId: string }) => c.clientId === client.clientId).p95Ms, records.p95);
+  assert.equal(exact.clients.find((c: { clientId: string }) => c.clientId === client.clientId).ackOnlyP95Ms, records.p95);
   // Host load can change attainment; preserve/report misses instead of making wall-clock speed a functional assertion.
   const state = (await request(`/activities/${activity.id}`)).data;
   assert.equal(state.confirmedCount, 50); assert.equal(state.participants.length, 50); assert.equal(state.version, 51);
@@ -396,5 +400,157 @@ test('an abrupt gateway crash stays conservative until its verified lifetime is 
   ack(client.socket, client.messages.find(m => m.eventId)!);
   await until(async () => (await request('/metrics/live?includeTest=true')).data.instrumentationGaps === baseline);
   assert.equal((await owner.query('SELECT stopped_at FROM live_processes WHERE process_id=$1', [oldProcessId])).rows[0].stopped_at.toISOString(), verifiedTerminationBound);
+  client.socket.terminate();
+});
+
+test('fully missed bookings and clients remain visible; a finalized miss dominates pending observations', async () => {
+  const { actorId, activity } = await fixture(1);
+  const client = await connect(activity.id);
+  await book(activity.id, actorId);
+  await until(() => client.messages.some(m => m.eventId));
+  const eventId = client.messages.find(m => m.eventId)!.eventId;
+  // Hiding after capture must preserve the original denominator.
+  client.socket.send(JSON.stringify({ type: 'foreground', foreground: false }));
+  await new Promise(resolve => setTimeout(resolve, 2100));
+  const other = await fixture(1);
+  const pendingClient = await connect(other.activity.id);
+  await book(other.activity.id, other.actorId);
+  await until(() => pendingClient.messages.some(m => m.eventId));
+  const exact = (await groups()).find(g => g.timing === 'commit_observed')!;
+  assert.ok(exact.pending > 0); assert.ok(exact.deliveryMisses > 0); assert.equal(exact.everyClientTargetMet, false);
+  const missedBooking = exact.perBookingMaxima.find((value: { eventId: string }) => value.eventId === eventId);
+  assert.equal(missedBooking.expected, 1); assert.equal(missedBooking.ackOnlyMaximumMs, null); assert.equal(missedBooking.latencyStatus, 'no_data');
+  const missedClient = exact.clients.find((value: { clientId: string }) => value.clientId === client.clientId);
+  assert.equal(missedClient.expected, 1); assert.equal(missedClient.ackOnlyP95Ms, null); assert.equal(missedClient.deliveryMisses, 1);
+  ack(client.socket, client.messages.find(m => m.eventId)!);
+  await until(async () => (await owner.query('SELECT ack_at FROM live_deliveries WHERE event_id=$1', [eventId])).rows.some(row => row.ack_at));
+  const late = (await groups()).find(g => g.timing === 'commit_observed')!;
+  assert.ok(late.eventualAckCoverage > late.onTimeCoverage);
+  client.socket.terminate(); pendingClient.socket.terminate();
+});
+
+test('telemetry failure sends current availability and keeps coverage failure visible', async () => {
+  const { actorId, activity } = await fixture(1);
+  const client = await connect(activity.id);
+  await owner.query(`CREATE FUNCTION fail_telemetry_snapshot() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN IF EXISTS (SELECT 1 FROM outbox_events WHERE id=NEW.event_id AND activity_id='${activity.id}'::uuid)
+      THEN RAISE EXCEPTION 'Scoped telemetry failure'; END IF; RETURN NEW; END $$;
+    CREATE TRIGGER fail_telemetry BEFORE INSERT ON live_observations FOR EACH ROW EXECUTE FUNCTION fail_telemetry_snapshot()`);
+  try {
+    await book(activity.id, actorId);
+    await until(() => client.messages.some(m => m.type === 'snapshot' && m.version === 2 && !m.eventId));
+    assert.equal(client.messages.some(m => m.type === 'unavailable'), false);
+    const metrics = (await request('/metrics/live?includeTest=true')).data;
+    assert.ok(metrics.instrumentationGaps > 0); assert.ok(metrics.instrumentation.measurementFailures > 0);
+  } finally { await owner.query('DROP TRIGGER fail_telemetry ON live_observations; DROP FUNCTION fail_telemetry_snapshot()'); }
+  await until(() => client.messages.some(m => m.eventId && m.version === 2));
+  client.socket.terminate();
+});
+
+test('expired proxy measurement still sends a current snapshot and normalizes ACK identifiers', async () => {
+  const { actorId, activity } = await fixture(1);
+  const lock = await owner.connect();
+  await lock.query('BEGIN'); await lock.query('SELECT id FROM activities WHERE id=$1 FOR UPDATE', [activity.id]);
+  const booking = book(activity.id, actorId);
+  await until(async () => (await owner.query(`SELECT 1 FROM pg_stat_activity WHERE datname=$1 AND wait_event_type='Lock' AND query LIKE '%FROM activities WHERE id=$1 FOR UPDATE%'`, [name])).rows.length > 0);
+  const client = await connect(activity.id.toUpperCase(), remote, true, randomUUID().toUpperCase());
+  await owner.query(`CREATE FUNCTION expire_proxy_write() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN IF NEW.timing='pre_commit_proxy' AND EXISTS (SELECT 1 FROM outbox_events WHERE id=NEW.event_id AND activity_id='${activity.id}'::uuid)
+      THEN PERFORM pg_sleep(1.1); END IF; RETURN NEW; END $$;
+    CREATE TRIGGER expire_proxy BEFORE INSERT ON live_observations FOR EACH ROW EXECUTE FUNCTION expire_proxy_write()`);
+  try {
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    await lock.query('COMMIT'); assert.equal((await booking).status,201);
+    await until(() => client.messages.some(m => m.type === 'snapshot' && m.version === 2));
+    // Even an already expired measurement can be delivered and later ACKed.
+    const update = client.messages.find(m => m.eventId && m.version === 2);
+    assert.ok(update);
+    client.socket.send(JSON.stringify({ type: 'ack', eventId: update.eventId!.toUpperCase(), activityId: activity.id.toUpperCase(), version: update.version }));
+    await until(async () => (await owner.query(`SELECT d.ack_at,d.delay_ms,o.timing FROM live_deliveries d JOIN live_observations o USING(event_id,process_id) WHERE d.event_id=$1`, [update.eventId])).rows.some(row => row.ack_at && row.delay_ms > 2000 && row.timing === 'pre_commit_proxy'));
+  } finally { await lock.query('ROLLBACK'); lock.release(); client.socket.terminate(); await owner.query('DROP TRIGGER expire_proxy ON live_observations; DROP FUNCTION expire_proxy_write()'); }
+});
+
+test('graceful shutdown drains in-flight bookings and observation writes through one cutoff under traffic', async () => {
+  const { actorId, activity } = await fixture(1);
+  const during = await fixture(1);
+  const processId = (await request('/metrics/live?includeTest=true')).data.instrumentation.processId;
+  const lock = await owner.connect();
+  await lock.query('BEGIN'); await lock.query('SELECT id FROM activities WHERE id=$1 FOR UPDATE', [activity.id]);
+  const booking = book(activity.id, actorId);
+  await until(async () => (await owner.query(`SELECT 1 FROM pg_stat_activity WHERE datname=$1 AND wait_event_type='Lock' AND query LIKE '%FROM activities WHERE id=$1 FOR UPDATE%'`, [name])).rows.length > 0);
+  await owner.query(`CREATE FUNCTION shutdown_observation_delay() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN IF NEW.process_id='${processId}'::uuid THEN PERFORM pg_sleep(.25); END IF; RETURN NEW; END $$;
+    CREATE TRIGGER shutdown_delay BEFORE INSERT ON live_observations FOR EACH ROW EXECUTE FUNCTION shutdown_observation_delay()`);
+  const child = apiChildren.get(base)!;
+  const port = Number(new URL(base).port);
+  const exit = once(child, 'exit');
+  child.kill('SIGTERM');
+  try {
+    const remoteResponse = await fetch(`${remote}/activities/${during.activity.id}/bookings`, { method: 'POST', headers: { 'Content-Type':'application/json','X-Demo-Actor-Id':during.actorId,'Idempotency-Key':randomUUID() }, body: JSON.stringify({platform:'web',journeyId:randomUUID()}) });
+    assert.equal(remoteResponse.status, 201);
+    await lock.query('COMMIT'); assert.equal((await booking).status, 201);
+    const [code] = await exit; assert.equal(code, 0);
+    const lifetime = (await owner.query('SELECT stopped_at FROM live_processes WHERE process_id=$1',[processId])).rows[0];
+    assert.ok(lifetime.stopped_at);
+    const observations = (await owner.query(`SELECT o.timing,e.activity_id FROM live_observations o JOIN outbox_events e ON e.id=o.event_id WHERE o.process_id=$1 AND e.activity_id=ANY($2::uuid[])`,[processId,[activity.id,during.activity.id]])).rows;
+    assert.equal(observations.length,2); assert.ok(observations.some(row=>row.activity_id===activity.id && row.timing==='commit_observed'));
+    base = await startApi(port);
+    const after = await fixture(1); await book(after.activity.id,after.actorId);
+    await until(async () => (await owner.query(`SELECT count(*)::int AS n FROM live_observations o JOIN outbox_events e ON e.id=o.event_id WHERE e.activity_id=$1`,[after.activity.id])).rows[0].n===2);
+    assert.equal((await owner.query(`SELECT 1 FROM live_observations o JOIN outbox_events e ON e.id=o.event_id WHERE o.process_id=$1 AND e.activity_id=$2`,[processId,after.activity.id])).rowCount,0);
+  } finally { await lock.query('ROLLBACK'); lock.release(); await owner.query('DROP TRIGGER shutdown_delay ON live_observations; DROP FUNCTION shutdown_observation_delay()'); }
+});
+
+test('bounded reconciliation pages advance past unresolved writes and revisit them without dropping coverage', async () => {
+  const { activity } = await fixture(105);
+  const actors = await Promise.all(Array.from({length:105},actor));
+  const timestamp=(await owner.query("SELECT (date_trunc('milliseconds',clock_timestamp())+interval '321 microseconds')::text AS value")).rows[0].value;
+  await owner.query(`CREATE FUNCTION same_microsecond_page() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN IF NEW.activity_id='${activity.id}'::uuid THEN NEW.created_at='${timestamp}'::timestamptz; END IF; RETURN NEW; END $$;
+    CREATE TRIGGER same_page BEFORE INSERT ON outbox_events FOR EACH ROW EXECUTE FUNCTION same_microsecond_page()`);
+  paused=true; for (const pipe of pipes) pipe.destroy();
+  await owner.query(`CREATE FUNCTION fail_first_proxy_page() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN IF NEW.timing='pre_commit_proxy' AND EXISTS (SELECT 1 FROM outbox_events WHERE id=NEW.event_id AND activity_id='${activity.id}'::uuid AND version=2)
+      THEN RAISE EXCEPTION 'Scoped first-page write failure'; END IF; RETURN NEW; END $$;
+    CREATE TRIGGER fail_page BEFORE INSERT ON live_observations FOR EACH ROW EXECUTE FUNCTION fail_first_proxy_page()`);
+  try {
+    for (let offset=0;offset<actors.length;offset+=25) {
+      const results=await Promise.all(actors.slice(offset,offset+25).map(id=>book(activity.id,id)));
+      assert.ok(results.every(result=>result.status===201));
+    }
+    await until(async () => (await owner.query(`SELECT count(*)::int AS n FROM live_observations o JOIN outbox_events e ON e.id=o.event_id
+      WHERE e.activity_id=$1 AND o.timing='pre_commit_proxy'`,[activity.id])).rows[0].n===104,15_000);
+  } finally { await owner.query('DROP TRIGGER fail_page ON live_observations; DROP FUNCTION fail_first_proxy_page(); DROP TRIGGER same_page ON outbox_events; DROP FUNCTION same_microsecond_page()'); paused=false; }
+  await until(async () => (await owner.query(`SELECT count(*)::int AS n FROM live_observations o JOIN outbox_events e ON e.id=o.event_id
+    WHERE e.activity_id=$1 AND o.timing='pre_commit_proxy'`,[activity.id])).rows[0].n===105,15_000);
+  const child=apiChildren.get(remote)!; const port=Number(new URL(remote).port); const exit=once(child,'exit');
+  child.kill('SIGTERM'); const [code]=await exit; assert.equal(code,0,'Same-microsecond pages must drain without forced shutdown');
+  remote=await startApi(port);
+  const metrics=(await request('/metrics/live?includeTest=true')).data;
+  assert.equal(metrics.reporting.truncated,false);
+  assert.equal(metrics.window.maxDays,7);
+  assert.ok(metrics.groups.every((group:{clients:unknown[];perBookingMaxima:unknown[]})=>group.clients.length<=100 && group.perBookingMaxima.length<=100));
+  assert.equal((await request('/metrics/live?includeTest=1')).status,400);
+  assert.equal((await request('/metrics/live?from=2026-01-01T00:00:00Z&to=2026-02-01T00:00:00Z')).status,400);
+});
+
+test('ACK storage failure preserves its arrival clock and does not interrupt current availability', async () => {
+  const { actorId, activity } = await fixture(2);
+  const nextActor=await actor();
+  const client=await connect(activity.id);
+  await owner.query(`CREATE FUNCTION fail_ack_write() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN IF NEW.ack_at IS NOT NULL AND OLD.ack_at IS NULL AND EXISTS (SELECT 1 FROM outbox_events WHERE id=NEW.event_id AND activity_id='${activity.id}'::uuid)
+      THEN RAISE EXCEPTION 'Scoped ACK storage failure'; END IF; RETURN NEW; END $$;
+    CREATE TRIGGER fail_ack BEFORE UPDATE ON live_deliveries FOR EACH ROW EXECUTE FUNCTION fail_ack_write()`);
+  let eventId:string|null=null;
+  try {
+    await book(activity.id,actorId); await until(()=>client.messages.some(m=>m.eventId && m.version===2));
+    const update=client.messages.find(m=>m.eventId && m.version===2)!; eventId=update.eventId; ack(client.socket,update);
+    await until(async ()=>(await request('/metrics/live?includeTest=true')).data.instrumentation.measurementFailures>0);
+    await book(activity.id,nextActor); await until(()=>client.messages.some(m=>m.version===3));
+    assert.equal(client.socket.readyState,WebSocket.OPEN);
+    await new Promise(resolve=>setTimeout(resolve,2100));
+  } finally { await owner.query('DROP TRIGGER fail_ack ON live_deliveries; DROP FUNCTION fail_ack_write()'); }
+  await until(async ()=>(await owner.query('SELECT ack_at,delay_ms FROM live_deliveries WHERE event_id=$1',[eventId])).rows.some(row=>row.ack_at && row.delay_ms<2000));
   client.socket.terminate();
 });

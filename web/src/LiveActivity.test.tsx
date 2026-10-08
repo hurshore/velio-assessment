@@ -124,3 +124,20 @@ test('late callbacks from a replaced socket cannot mark the recovered view stale
   expect(screen.getByText('Live availability connected.')).toBeTruthy();
   expect(Socket.instances).toHaveLength(2);
 });
+
+test('foreground return gives the healthy socket a fresh watchdog window', async () => {
+  vi.useFakeTimers();
+  const socket = setup();
+  await act(async () => { socket.open(); socket.snapshot(); });
+  vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+  act(() => document.dispatchEvent(new Event('visibilitychange')));
+  await act(async () => { await vi.advanceTimersByTimeAsync(12_000); });
+  vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+  act(() => document.dispatchEvent(new Event('visibilitychange')));
+  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+  expect(socket.readyState).toBe(Socket.OPEN);
+  expect(Socket.instances).toHaveLength(1);
+  act(() => socket.snapshot());
+  expect(screen.getByText('Live availability connected.')).toBeTruthy();
+  vi.restoreAllMocks();
+});
