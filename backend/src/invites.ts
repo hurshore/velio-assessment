@@ -152,7 +152,7 @@ export function inviteCreationRoutes(db: Database, policy: InvitePolicy) {
     const journeyId = body.journeyId === undefined ? null : uuid(body.journeyId, 'Journey');
     await policy.requireCreation(activityId, inviter);
     if (recipient && (await rows(db, 'SELECT 1 FROM users WHERE id=$1 AND contact=$2', [inviter, recipient])).length) {
-      throw new DomainError(400, 'SELF_INVITE', 'You cannot vouch for your own contact.');
+      throw new DomainError(403, 'SELF_INVITE', 'You cannot vouch for your own contact.');
     }
     // Eligibility and the insert share one statement and one observation time, so an activity
     // starting or filling mid-request yields its domain error rather than a constraint failure.

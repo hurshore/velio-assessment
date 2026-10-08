@@ -4,9 +4,20 @@ Scope: PLANS.md §§1.2, 2.2, 2.4, 2.6, 2.9, 3.4 and 4.1. Node 24.21.0 and Postg
 
 ## Verified behaviour
 
-- **Creation.** A host or confirmed booker in treatment creates a vouch for one contact. Email input is lowercased and phone input stripped to digits, and the creator's response echoes the normalized contact. Expiry is exactly 24 hours, or the activity start if that is sooner. Creating a vouch reserves no seat. The rules match public sharing: outsiders, control activities and a disabled creation switch get 403 `INVITE_CREATION_UNAVAILABLE`, and a full activity gets 409 `SOLD_OUT`. A missing or malformed contact gets 400. So does a contact sent on a public link, and vouching for one's own contact gets 400 `SELF_INVITE`.
+- **Creation.** A host or confirmed booker in treatment creates a vouch for one contact. Email input is lowercased and phone input stripped to digits, and the creator's response echoes the normalized contact. Expiry is exactly 24 hours, or the activity start if that is sooner. Creating a vouch reserves no seat. The rules match public sharing: outsiders, control activities and a disabled creation switch get 403 `INVITE_CREATION_UNAVAILABLE`, and a full activity gets 409 `SOLD_OUT`. A missing or malformed contact gets 400. So does a contact sent on a public link, and vouching for one's own contact gets 403 `SELF_INVITE`.
 - **Recipient matching.** Identities with no contact or a different contact get 403 `RECIPIENT_MISMATCH`, and the message never contains the intended contact. These claims consume no seat and no redemption. The matching identity's claim commits with a `vouch` redemption, and its contact may differ in case from the one entered. After a direct booking fills the last seat, the recipient's retry with the same key, or with a new key, returns the same booking and redemption (200, `replayed`). Another identity presenting the used code still gets `RECIPIENT_MISMATCH`, and one redemption remains.
-- **Race.** The activity row is held locked from outside while the same requests queue behind it: 8 recipient claims (4 with one shared key, 4 with fresh keys), 6 claims from wrong recipients and 6 direct bookings, all against 2 seats. At least 10 lock waiters are confirmed. Result: the recipient's 8 requests converge on one booking (or all get `SOLD_OUT` if they lose the race), every wrong-recipient request gets `RECIPIENT_MISMATCH`, and there is at most one redemption. Reconciliation is clean at 2 bookings. The race test passed in three consecutive focused runs.
+- **Race.** The activity row is held locked from outside while the same requests queue behind it, against 7 seats:
+  - 8 recipient claims (4 with one shared key, 4 with fresh keys)
+  - 6 claims from wrong recipients
+  - 6 direct bookings
+
+  At least 10 lock waiters are confirmed. Result:
+  - The recipient's 8 requests commit exactly one booking (one 201) and converge on one redemption.
+  - Every wrong-recipient request gets `RECIPIENT_MISMATCH`.
+  - All 6 direct bookings commit.
+  - There is exactly one redemption, and reconciliation is clean at 7 bookings.
+
+  Contention for the last seat is covered separately: direct bookings and claims race in the public-invite suite, and the recipient-reopens-when-full scenario covers the full activity.
 - **Rollback.** A failure injected on the outbox insert returns a retryable 500 and rolls back the booking, the count and the vouch redemption. The same key then succeeds.
 - **Expiry at transaction time.** A vouch previews as `valid` and is moved to expire 500 ms later. A recipient claim after that time gets 410 `INVITE_EXPIRED`, and nothing is consumed.
 - **Existing booking.** A recipient who already holds a direct booking gets it back with `redemption: null`. The vouch is not consumed and their attribution is unchanged.

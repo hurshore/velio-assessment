@@ -48,7 +48,7 @@ test('explains recipient matching, trust, demo limits, expiry and no reserved se
 });
 
 test('a missing contact is explained before any request, and server rejections keep the entered contact', async () => {
-  const fetch = setup(async () => new Response(JSON.stringify({ error: { code: 'SELF_INVITE', message: 'You cannot vouch for your own contact.', retryable: false }, requestId: 'ui-test' }), { status: 400 }));
+  const fetch = setup(async () => new Response(JSON.stringify({ error: { code: 'SELF_INVITE', message: 'You cannot vouch for your own contact.', retryable: false }, requestId: 'ui-test' }), { status: 403 }));
   const panel = await screen.findByRole('group', { name: 'Vouch for a contact' });
   fireEvent.click(within(panel).getByRole('button', { name: 'Create vouch' }));
   expect((await within(panel).findByRole('alert')).textContent).toMatch(/Enter the email address or phone number/);

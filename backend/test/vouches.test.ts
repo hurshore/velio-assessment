@@ -146,9 +146,10 @@ test('only the intended contact redeems a vouch, once; wrong recipients consume 
   await reconcile(listing.id, 2);
 });
 
-test('racing recipient retries, wrong recipients and direct bookings commit one vouch redemption without overselling', async () => {
+test('racing recipient retries, wrong recipients and direct bookings commit exactly one vouch redemption', async () => {
   const host = (await identity()).id;
-  const listing = await activity(host, 2);
+  // Room for the recipient and every direct booker, so the race isolates recipient and redemption checks.
+  const listing = await activity(host, 7);
   const recipientContact = contact();
   const { code, id: inviteId } = (await vouch(listing.id, host, recipientContact)).data;
   const recipient = (await identity({ contact: recipientContact })).id;
@@ -174,14 +175,13 @@ test('racing recipient retries, wrong recipients and direct bookings commit one 
   const outcomes = await Promise.all(requests);
   const recipientOutcomes = outcomes.slice(0, 8);
   const committed = recipientOutcomes.filter(result => result.status === 201);
-  const recipientWon = committed.length === 1;
-  // The recipient either wins one seat (and every retry recovers it) or loses the race to capacity.
-  if (recipientWon) {
-    assert.ok(recipientOutcomes.every(result => result.data?.booking.id === committed[0].data.booking.id), JSON.stringify(recipientOutcomes));
-  } else assert.ok(recipientOutcomes.every(result => result.error?.code === 'SOLD_OUT'), JSON.stringify(recipientOutcomes));
+  assert.equal(committed.length, 1, JSON.stringify(recipientOutcomes));
+  assert.ok(recipientOutcomes.every(result => result.data?.booking.id === committed[0].data.booking.id), JSON.stringify(recipientOutcomes));
+  assert.equal(new Set(recipientOutcomes.map(result => result.data.redemption.id)).size, 1);
   assert.ok(outcomes.slice(8, 14).every(result => result.error?.code === 'RECIPIENT_MISMATCH'), JSON.stringify(outcomes.slice(8, 14)));
-  assert.equal(await redemptions(inviteId), recipientWon ? 1 : 0);
-  await reconcile(listing.id, 2);
+  assert.ok(outcomes.slice(14).every(result => result.status === 201));
+  assert.equal(await redemptions(inviteId), 1);
+  await reconcile(listing.id, 7);
 });
 
 test('a failure before commit rolls back the vouch redemption with the seat, and the same key then succeeds', async () => {
