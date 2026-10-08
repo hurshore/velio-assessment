@@ -1,8 +1,11 @@
+import { ViewDelivery } from './view-delivery';
+import { ViewDeliveryStatus } from './ViewDeliveryStatus';
 import { ActivityBrowser } from './ActivityBrowser';
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, journey, message, parseIdentity, parseList, persist, stored, type Identity } from './api';
 
 export function HostApp() {
+  const [delivery] = useState(() => new ViewDelivery());
   const [identities, setIdentities] = useState<Identity[]>([]);
   const [actorId, setActorId] = useState(() => stored('velio.actor.v1'));
   const [journeyId] = useState(journey);
@@ -52,6 +55,7 @@ export function HostApp() {
         <button disabled={creating || loading || hosting}>{creating ? 'Creating identity…' : 'Create demo identity'}</button>
       </form>
     </section>
-    <ActivityBrowser journeyId={journeyId} actorId={identities.some(user => user.id === actorId) ? actorId : ''} setHosting={setHosting} />
+    <ViewDeliveryStatus delivery={delivery} />
+    <ActivityBrowser delivery={delivery} journeyId={journeyId} actorId={identities.some(user => user.id === actorId) ? actorId : ''} setHosting={setHosting} />
   </>;
 }

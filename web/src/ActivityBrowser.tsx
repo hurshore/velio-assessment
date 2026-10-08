@@ -1,3 +1,4 @@
+import type { ViewDelivery } from './view-delivery';
 import { ActivityDetails } from './ActivityDetails';
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, message, parseActivity, parseList, type Activity } from './api';
@@ -14,7 +15,7 @@ function localInstant(value: string): string {
 function displayTime(startsAt: string, timezone: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'full', timeStyle: 'short', timeZone: timezone }).format(new Date(startsAt));
 }
-export function ActivityBrowser({ actorId, journeyId, setHosting }: { actorId: string; journeyId: string; setHosting: (value: boolean) => void }) {
+export function ActivityBrowser({ actorId, journeyId, setHosting, delivery }: { delivery: ViewDelivery; actorId: string; journeyId: string; setHosting: (value: boolean) => void }) {
   const [selected, setSelected] = useState('');
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
@@ -106,6 +107,6 @@ export function ActivityBrowser({ actorId, journeyId, setHosting }: { actorId: s
         </li>)}
       </ul>
     </section>
-    {selected ? <ActivityDetails key={selected} id={selected} actorId={actorId} journeyId={journeyId} close={() => setSelected('')} /> : null}
+    {selected ? <ActivityDetails delivery={delivery} key={selected} id={selected} actorId={actorId} journeyId={journeyId} close={() => setSelected('')} /> : null}
   </>;
 }

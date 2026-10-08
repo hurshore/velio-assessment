@@ -168,3 +168,22 @@ test('anonymous seed activity views retain synthetic markers', async () => {
   const event = await owner.query('SELECT synthetic FROM analytics_events WHERE id=$1', [id]);
   assert.equal(event.rows[0].synthetic, true);
 });
+
+test('timezone input resolves to a database-supported display zone before insertion', async () => {
+  const user = await request('/identities', { displayName: 'Timezone regressions', journeyId: randomUUID(), platform: 'web', test: true });
+  for (const timezone of ['Africa/Lagos', 'africa/lagos']) {
+    const created = await request('/activities', { ...activityInput, timezone }, user.data.id);
+    assert.equal(created.status, 201, timezone);
+    assert.equal(created.data.timezone, 'Africa/Lagos');
+    const stored = await owner.query('SELECT timezone, valid_display_timezone(timezone) AS supported FROM activities WHERE id=$1', [created.data.id]);
+    assert.equal(stored.rows[0].timezone, 'Africa/Lagos');
+    assert.equal(stored.rows[0].supported, true);
+    const detail = await request(`/activities/${created.data.id}`);
+    assert.equal(new Intl.DateTimeFormat('en-GB', { timeZone: detail.data.timezone, hour: '2-digit', minute: '2-digit' }).format(new Date(detail.data.startsAt)), '08:00');
+  }
+  const invalid = await request('/activities', { ...activityInput, timezone: 'Invalid/Zone' }, user.data.id);
+  assert.equal(invalid.status, 400);
+  assert.equal(invalid.error.code, 'INVALID_REQUEST');
+  assert.equal(invalid.error.retryable, false);
+  assert.match(invalid.error.message, /timezone/i);
+});

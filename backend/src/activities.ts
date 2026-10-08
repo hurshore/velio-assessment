@@ -46,10 +46,14 @@ export function activityRoutes(db: Database) {
     const body = object(request.body);
     exact(body, ['title', 'description', 'meetingLocation', 'startsAt', 'timezone', 'capacity', 'priceMinor', 'currency']);
     const startsAt = absoluteTime(body.startsAt);
-    const timezone = text(body.timezone, 'Timezone', 100);
-    if (timezone !== 'UTC' && !timezone.includes('/') || timezone.startsWith('posix/') || timezone.startsWith('right/')) throw new DomainError(400, 'INVALID_REQUEST', 'Choose an IANA display timezone.');
+    const inputTimezone = text(body.timezone, 'Timezone', 100);
+    // Resolve using PostgreSQL's supported spelling, then check that clients can display it.
+    const [zone] = await rows<{ timezone: string }>(db, `SELECT name AS timezone FROM pg_timezone_names
+      WHERE lower(name)=lower($1) AND valid_display_timezone(name) ORDER BY name LIMIT 1`, [inputTimezone]);
+    if (!zone) throw new DomainError(400, 'INVALID_REQUEST', 'Choose a supported IANA display timezone, such as Africa/Lagos or UTC.');
+    const timezone = zone.timezone;
     try { new Intl.DateTimeFormat('en', { timeZone: timezone }); }
-    catch { throw new DomainError(400, 'INVALID_REQUEST', 'Choose an IANA display timezone.'); }
+    catch { throw new DomainError(400, 'INVALID_REQUEST', 'This timezone is not supported for display. Choose another IANA timezone, such as Africa/Lagos or UTC.'); }
     const currency = text(body.currency, 'Currency', 3);
     if (!/^[A-Z]{3}$/.test(currency)) throw new DomainError(400, 'INVALID_REQUEST', 'Currency must be an uppercase three-letter code.');
     const [activity] = await rows<{ id: string }>(db, `INSERT INTO activities

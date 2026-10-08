@@ -27,3 +27,17 @@ No booking writes, editing/cancellation, invitations, mobile domain flow, live s
 ## Review
 
 Two independent code-review axes compared the implementation to approved baseline `7a5553c`. Standards found no documented violations; one optional duplication observation in the two short list-loading effects was retained as explicit, readable flows. Spec found no additional mismatches beyond anonymous seeded-activity views initially missing their synthetic marker. A failing regression reproduced that edge; ingestion now inherits activity-host markers as well as selected-identity markers. The focused integration suite and full checks were rerun after that correction.
+
+
+## Review corrections verified
+
+The follow-up review reproduced the lowercase-timezone insertion failure, incomplete domain-error parsing, stale documentation introductions, and view delivery cancellation on component unmount. Approved focused regressions were observed failing before correction.
+
+- `Africa/Lagos` and `africa/lagos` both return and store `Africa/Lagos`. Real HTTP/PostgreSQL tests inspect the persisted value and database display guard, load details, and format the resulting instant. The rendered web test displays the authoritative Africa/Lagos zone and its corresponding local time after lowercase form input. Invalid zones return 400 `INVALID_REQUEST`, retryable false, with useful timezone guidance.
+- Domain and readiness responses share a validator for nonempty code/message/requestId and boolean retryability. Compliant domain errors preserve those fields. Incomplete, malformed and non-JSON responses show unexpected-response retry guidance; shared readiness fixtures also exercise the domain helper.
+- View delivery is app-owned and each HTTP attempt is bounded to eight seconds. Rendered tests cover closing details, changing activities, changing identity, refreshing details, StrictMode replay and actual timeout. Failed delivery remains observable after navigation; retry sends the same ID, actor header, activity/plan, journey and original occurrence time. Duplicate server receipts clear the pending entry. Success entries are removed; failures remain available for user retry.
+- `npm run verify` passed: type checks, 12 tooling tests, 29 backend tests (9 real HTTP/PostgreSQL host-slice tests), 42 rendered React/HTTP-helper tests, both production builds, clean Flutter analysis and 13 Flutter tests. None skipped. Live `npm run smoke` returned 200 for both health and PostgreSQL/Redis readiness.
+
+Browser refresh/closure is best effort. Pending and failed view delivery lives only in app memory, so it may be lost when that session ends. This correction does not add a persistent offline telemetry queue or automatic background retries.
+
+The correction changeset was reviewed with code-review-v3: eight static criteria, React best practices, and behavioral simulation, each assigned to a dedicated reviewer (available inherited model; Sonnet was unavailable). Two minor observations—duplicated record validation and a decision-log table break—were corrected and rechecked. No actionable findings remain; verdict APPROVE. Next.js review does not apply to this Vite application. Type checks and all 42 web tests passed again after the shared-guard cleanup.

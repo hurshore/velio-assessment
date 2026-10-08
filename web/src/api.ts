@@ -1,3 +1,4 @@
+import { isRecord, parseEnvelope, unexpectedResponseMessage } from './response-envelope';
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
 export interface Identity {
   id: string; displayName: string; generation: number; acquisitionParentId: string | null; acquisitionRootId: string;
@@ -8,21 +9,31 @@ export interface Activity {
   capacity: number; confirmedCount: number; remainingSeats: number; priceMinor: number; currency: string; version: number;
   status: string; planId: string; participants?: { id: string; displayName: string }[];
 }
+export class ApiError extends Error {
+  constructor(public code: string, message: string, public retryable: boolean, public requestId: string) {
+    super(`${message} (Request: ${requestId})`);
+  }
+}
 export async function api(path: string, options: { body?: unknown; actorId?: string; signal?: AbortSignal } = {}): Promise<unknown> {
   const response = await fetch(apiBase + '/api' + path, { method: options.body === undefined ? 'GET' : 'POST',
     headers: { 'Content-Type': 'application/json', ...(options.actorId ? { 'X-Demo-Actor-Id': options.actorId } : {}) },
     body: options.body === undefined ? undefined : JSON.stringify(options.body), signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(8000)]) : AbortSignal.timeout(8000) });
-  const envelope = await response.json();
-  if (!envelope || typeof envelope.requestId !== 'string' || !envelope.requestId) throw new Error('The API returned an unexpected response.');
-  if (!response.ok) {
-    if (typeof envelope.error?.message !== 'string') throw new Error('The API returned an unexpected response.');
-    throw new Error(`${envelope.error.message} (Request: ${envelope.requestId})`);
+  let body: unknown;
+  try { body = await response.json(); }
+  catch (error) {
+    if (error instanceof SyntaxError) throw new Error(unexpectedResponseMessage);
+    throw error;
+  }
+  const envelope = parseEnvelope(response.status, body);
+  if (envelope.kind === 'error') {
+    const { code, message, retryable } = envelope.error;
+    throw new ApiError(code, message, retryable, envelope.requestId);
   }
   return envelope.data;
 }
 function record(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('The API returned an unexpected response.');
-  return value as Record<string, unknown>;
+  if (!isRecord(value)) throw new Error('The API returned an unexpected response.');
+  return value;
 }
 export function parseIdentity(value: unknown): Identity {
   const data = record(value);
