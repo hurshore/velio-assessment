@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { DomainError, exact, object, platform, rows, text, uuid, type Database } from './domain.js';
+import type { AvailabilityEvent } from './outbox.js';
 import type { FailureReporter } from './diagnostics.js';
 
 export interface TransactionConnection extends Database { release(error?: boolean): void }
@@ -35,7 +36,8 @@ async function event(db: Database, name: string, intent: Intent, actor: Actor, c
     booking?.id ?? null, { ...context, requestId: intent.requestId, idempotencyKey: intent.key, operation: 'book_activity', activityId: intent.activityId }, actor.synthetic, actor.test, intent.activityId]);
 }
 
-export async function bookSeat(db: BookingDatabase, intent: Intent, actor: Actor, logFailure: FailureReporter) {
+export async function bookSeat(db: BookingDatabase, intent: Intent, actor: Actor, logFailure: FailureReporter, committed?: (event: AvailabilityEvent) => void, processId?: string) {
+  let committedEvent: AvailabilityEvent | undefined;
   let telemetryFailed = false;
   async function observe(name: string, context: object) {
     try { await event(db, name, intent, actor, context); }
@@ -89,13 +91,18 @@ export async function bookSeat(db: BookingDatabase, intent: Intent, actor: Actor
         result = { booking: booking!, availability: updated, replayed: false };
         await event(connection, 'booking_succeeded', intent, actor, { eligibility, outcome: 'committed' }, booking);
         const outboxId = randomUUID();
-        await connection.query(`INSERT INTO outbox_events (id,name,activity_id,booking_id,version,payload)
-          VALUES ($1,'availability_updated',$2,$3,$4,$5)`, [outboxId, intent.activityId, booking!.id, updated.version, { eventId: outboxId, ...updated }]);
+        committedEvent = { eventId: outboxId, ...updated, bookingId: booking!.id, createdAt: new Date().toISOString() };
+        await connection.query(`INSERT INTO outbox_events (id,name,activity_id,booking_id,version,payload,origin_process_id)
+          VALUES ($1,'availability_updated',$2,$3,$4,$5,$6)`, [outboxId, intent.activityId, booking!.id, updated.version, { eventId: outboxId, ...updated }, processId ?? null]);
       }
       await connection.query(`UPDATE idempotency_keys SET result=$3 WHERE actor_id=$1 AND operation='book_activity' AND key=$2`, [actor.id, intent.key, result]);
     }
     stage = 'commit';
     await connection.query('COMMIT');
+    if (committedEvent && committed) {
+      try { committed(committedEvent); }
+      catch (error) { telemetryFailed = true; logFailure({ component: 'live.commit_observation', requestId: intent.requestId }, error); }
+    }
   } catch (error) {
     if (connection) {
       try { await connection.query('ROLLBACK'); }
@@ -112,7 +119,7 @@ export async function bookSeat(db: BookingDatabase, intent: Intent, actor: Actor
   return { ...result, telemetry: telemetryFailed ? 'degraded' : 'ok' };
 }
 
-export function bookingRoutes(db: BookingDatabase, logFailure: FailureReporter) {
+export function bookingRoutes(db: BookingDatabase, logFailure: FailureReporter, committed?: (event: AvailabilityEvent) => void, processId?: string) {
   const router = Router();
   async function actor(value: string | undefined): Promise<Actor> {
     if (!value) throw new DomainError(401, 'IDENTITY_REQUIRED', 'Select a demo identity before booking.');
@@ -146,7 +153,7 @@ export function bookingRoutes(db: BookingDatabase, logFailure: FailureReporter) 
         code: error instanceof DomainError ? error.code : 'TECHNICAL_ERROR', technical: !(error instanceof DomainError) }, logFailure);
       throw error;
     }
-    const result = await bookSeat(db, intent, user, logFailure);
+    const result = await bookSeat(db, intent, user, logFailure, committed, processId);
     response.status(result.replayed ? 200 : 201).json({ data: result, requestId: response.locals.requestId });
   });
   return router;

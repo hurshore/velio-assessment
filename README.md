@@ -1,6 +1,6 @@
 # Velio assessment
 
-Runnable Express/TypeScript API, React/TypeScript/Vite host/booker web client, and Flutter guest skeleton. [PLANS.md](PLANS.md) is the product and technical specification. The web supports persistent organic demo identities, activity creation/discovery/details, committed seat booking/recovery, and durable rendered-view events. Invitations, live updates and metrics remain subsequent tickets.
+Runnable Express/TypeScript API, React/TypeScript/Vite host/booker web client, and Flutter guest skeleton. [PLANS.md](PLANS.md) is the product and technical specification. The web supports persistent organic demo identities, activity creation/discovery/details, committed seat booking/recovery, and durable rendered-view events. Live availability, committed participants, delivery recovery and operational delivery metrics are implemented; invitations and product metrics remain subsequent tickets.
 
 ## Toolchains
 
@@ -37,7 +37,7 @@ npm run mobile:check
 npm run verify      # typecheck, Node tests, builds, Flutter analyze/tests
 ```
 
-`npm run infra:down` stops dependencies and preserves the volume. `npm run build` outputs API `backend/dist` and web `web/dist`; `npm start --workspace backend` starts the built API. Web production hosting must proxy `/api` to the backend or set `VITE_API_BASE_URL` at build time and configure `WEB_ORIGIN` to the exact served origin. The foundation does not deploy a production server.
+`npm run infra:down` stops dependencies and preserves the volume. `npm run build` outputs API `backend/dist` and web `web/dist`; `npm start --workspace backend` starts the built API. Web production hosting must proxy HTTP and WebSocket upgrades under `/api` to the backend or set `VITE_API_BASE_URL` at build time and configure `WEB_ORIGIN` to the exact served origin. The foundation does not deploy a production server.
 
 ## Flutter simulator/device URLs
 
@@ -71,13 +71,13 @@ For a physical phone, opt in with `HOST=0.0.0.0 npm run dev` and `API_BASE_URL=h
 - `docker-compose.yml`: PostgreSQL/Redis with health checks.
 - [Initial shared contracts](docs/contracts/api.md): envelopes/errors, identity/idempotency, rail/ancestry, journey/events, versioned availability. Health, organic identity, activity discovery/creation/details and narrow rendered-view ingestion routes exist now.
 
-Process health remains 200 during dependency outages; readiness returns a safe retryable 503. Probes are bounded and API responses do not disclose dependency credentials. Invite ancestry, Redis-backed live delivery, mobile cache/haptics, metrics, and `OWNERSHIP.md` remain in subsequent plan tickets. Booking evidence is in [the booking report](docs/verification/seat-booking.md). Host activity evidence is in [the slice verification report](docs/verification/host-activities.md).
+Process health remains 200 during dependency outages; readiness returns a safe retryable 503. Probes are bounded and API responses do not disclose dependency credentials. Invite ancestry, mobile cache/haptics, product metrics, and `OWNERSHIP.md` remain in subsequent plan tickets. Booking evidence is in [the booking report](docs/verification/seat-booking.md). Host activity evidence is in [the slice verification report](docs/verification/host-activities.md).
 
 ## Create and inspect an activity
 
 Open the web, select a seeded demo host or create an organic identity, and fill the activity form. The selection and anonymous journey survive reload in browser storage; identities themselves persist in PostgreSQL. Demo identity selection is not production authentication. Date/time entry uses the explicitly labelled device timezone; the IANA display timezone previews the same absolute instant. Capacity is a positive integer. Prices use non-negative minor units and an explicit currency (no payment).
 
-Creation shows a pending discovery row, then authoritative details with its shared plan, remaining seats and booking-derived participants. Rejection removes the pending row and preserves inputs. After an uncertain network response, refresh discovery before retrying. Counts are labelled server snapshots; use Refresh details until live updates arrive. Hosting alone consumes no seat.
+Creation shows a pending discovery row, then authoritative details with its shared plan, remaining seats and booking-derived participants. Rejection removes the pending row and preserves inputs. After an uncertain network response, refresh discovery before retrying. Activity details subscribe to live snapshots and show connection/stale state; a displayed seat is never reserved. Hosting alone consumes no seat.
 
 `npm test` includes real HTTP/PostgreSQL tests. They load the ignored root `.env`, create a uniquely named temporary database using the migration role, exercise the API with runtime credentials, and drop only that test database. PostgreSQL must be running and the migration login needs local CREATEDB permission (Compose's bootstrap login has it). To run just this seam: `node --env-file=.env --import tsx --test backend/test/activities.test.ts`. UI seam: `npm run test --workspace web -- --run src/HostApp.test.tsx`.
 
@@ -85,8 +85,19 @@ Rendered activity views keep their captured event ID, actor and time through in-
 
 ## Book and recover one seat
 
-Open activity details under a selected demo identity. Book one seat shows pending feedback until PostgreSQL commits; confirmation includes the booking, shared plan and snapshotted price. The API serializes capacity decisions with an activity row lock, a 1.5-second lock timeout, and unique user/activity membership. Booking, count/version, success event, idempotency result and availability outbox commit together. Redis delivery arrives in #5; refresh details for current participants/counts.
+Open activity details under a selected demo identity. Book one seat shows pending feedback until PostgreSQL commits; confirmation includes the booking, shared plan and snapshotted price. The API serializes capacity decisions with an activity row lock, a 1.5-second lock timeout, and unique user/activity membership. Booking, count/version, success event, idempotency result and availability outbox commit together. The durable outbox dispatches through Redis and WebSockets; the view refreshes committed counts and participants, including recovery after interrupted delivery.
 
 Own-booking lookup restores the same confirmation after reopening, including a full or cancelled activity. An uncertain response triggers lookup; unresolved requests retain their actor/activity key in browser storage and offer check/retry with that same key. The losing last-seat claimant keeps their details and receives a sold-out explanation. Storage failure is visible; selecting the same identity still permits server recovery. No payment is collected.
 
 Focused verification: `node --env-file=.env --import tsx --test backend/test/bookings.test.ts` and `npm run test --workspace web -- src/SeatBooking.test.tsx`. A read-only `booking_reconciliation` SQL view compares confirmed rows to stored counts and detects overselling independently. New allocations refuse a mismatched counter. Local tests include 50 coordinated overlapping requests against one and three seats and pre-commit rollback injection. Attempt/failure/raw outcome telemetry is outside the business transaction and failures are logged; degraded telemetry on a successful response is shown without invalidating confirmation.
+
+
+## Live availability and delivery recovery
+
+Opening activity details subscribes to `/api/live` and refreshes counts and participants from PostgreSQL. A view remains visibly stale while disconnected or awaiting recovery. New booking submission requires a recovered live snapshot; confirmation lookup and uncertain-request recovery remain available. Reconnect and foreground entry refresh current details. A one-second reconciliation recovers missed Redis publications; a five-second client watchdog reconnects stalled streams. Neither invites nor displayed capacity reserve a seat.
+
+The dispatcher leases durable booking-owned outbox rows, publishes to `velio:group-bookings:v1:availability`, and retries failed publication outside the booking transaction. Duplicate deliveries are expected. Clients apply newer versions and ACK only after rendering; old versions cannot undo counts or membership. Redis failure does not undo a committed booking.
+
+[Live delivery metrics](http://127.0.0.1:3000/api/metrics/live) separate exact single-process commit-observed timing from outbox-creation **pre-commit proxy** recovery timing. Each group includes per-booking maximum ACK delay/p95, client p95/sample counts, expected/acknowledged deliveries, pending updates, misses and coverage. Disconnected/missing ACKs remain in the denominator. Synthetic/test scenarios are excluded unless `?includeTest=true`. No-data results are null; a fast successful sample does not establish every-client attainment. Exact multi-node timing correlation remains a follow-up.
+
+Focused checks: `node --env-file=.env --import tsx --test backend/test/live.test.ts` and `npm test --workspace web -- --run src/LiveActivity.test.tsx src/SeatBooking.test.tsx`. The service suite owns a temporary database and two actual API processes; a TCP proxy interrupts only their Redis connections. It exercises publication retries, periodic recovery, subscription races, API restart, missing/late ACKs and 50 overlapping bookings. [Verification and timing limitations](docs/verification/live-availability.md).

@@ -1,3 +1,5 @@
+import type { AvailabilityEvent } from './outbox.js';
+import { liveMetricsRoutes } from './live-metrics.js';
 import { bookingRoutes, recordInvalidBooking, type BookingDatabase } from './bookings.js';
 import { eventRoutes } from './events.js';
 import { activityRoutes } from './activities.js';
@@ -10,6 +12,9 @@ import express, { type ErrorRequestHandler } from 'express';
 export interface Dependencies {
   postgres: BookingDatabase;
   redis: { ping: () => Promise<string> };
+  liveProcessId?: string;
+  committed?: (event: AvailabilityEvent) => void;
+  liveHealth?: () => { processId: string; measurementFailures: number };
 }
 
 export function createApp(dependencies: Dependencies, webOrigin: string, logFailure: FailureReporter = reportFailure) {
@@ -69,8 +74,9 @@ export function createApp(dependencies: Dependencies, webOrigin: string, logFail
     }
     response.json({ data: { status: 'ok', dependencies: { postgres: 'ok', redis: 'ok' } }, requestId: response.locals.requestId });
   });
+  app.use('/api/metrics', liveMetricsRoutes(dependencies.postgres, dependencies.liveHealth));
   app.use('/api/events', eventRoutes(dependencies.postgres));
-  app.use('/api/activities', bookingRoutes(dependencies.postgres, logFailure));
+  app.use('/api/activities', bookingRoutes(dependencies.postgres, logFailure, dependencies.committed, dependencies.liveProcessId));
   app.use('/api/activities', activityRoutes(dependencies.postgres));
   app.use('/api/identities', identityRoutes(dependencies.postgres));
   app.use((_request, response) => {

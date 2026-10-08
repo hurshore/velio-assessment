@@ -11,6 +11,22 @@ const snapshot = { activityId: activity.id, planId: activity.planId, capacity: 1
 function response(data: unknown) { return new Response(JSON.stringify({ data, requestId: 'ui-test' })); }
 function setup(write: (options: RequestInit) => Promise<Response>, lookup: () => unknown = () => ({ booking: null, availability: { ...snapshot, remainingSeats: 1, confirmedCount: 0, version: 1 } }), details: () => typeof activity = () => activity) {
   localStorage.setItem('velio.actor.v1', actorId);
+  // The rendered booking seam now requires a recovered live snapshot before a new write.
+  vi.stubGlobal('WebSocket', class {
+    static OPEN = 1;
+    readyState = 1;
+    onopen: (() => void) | null = null;
+    onmessage: ((event: { data: string }) => void) | null = null;
+    onclose: (() => void) | null = null;
+    constructor() { queueMicrotask(() => this.onopen?.()); }
+    send(value: string) {
+      if (JSON.parse(value).type !== 'subscribe') return;
+      const detail = details();
+      queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ type: 'snapshot', eventId: null,
+        activityId: detail.id, version: detail.version, activity: detail }) }));
+    }
+    close() { this.readyState = 3; this.onclose?.(); }
+  });
   vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options: RequestInit) => {
     if (url.endsWith('/identities')) return Promise.resolve(response([{ id: actorId, displayName: 'Amara', generation: 0, acquisitionParentId: null, acquisitionRootId: actorId, synthetic: false, test: false }]));
     if (url.endsWith('/events')) return Promise.resolve(response({ accepted: true }));
