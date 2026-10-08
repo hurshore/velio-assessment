@@ -66,3 +66,27 @@ Web storage keys are versioned (`velio.actor.v1`, `velio.journey.v1`). Identitie
 - Each valid intent records `booking_attempted`. New committed business writes include exactly one `booking_succeeded`; each raw request records `booking_request_outcome` with `committed`, `replay`, `sold_out`, `invalid` or `technical_error`. Rejections also record `booking_sold_out` or `booking_failed` with stage/code/eligibility (`eligible`, `unknown`, `ineligible`, `sold_out`). Outcomes link request/key/operation/activity in context. Actor and activity-host synthetic/test markers propagate from resolved database rows, including invalid raw requests; request-body markers never determine classification. Invalid activity UUIDs record activityContext=invalid_id; valid UUIDs absent from storage record activityContext=not_found. Both contribute no activity/host flags and inherit only a resolved actor’s flags (false when no actor resolves). Telemetry storage failure preserves the original validation response. Invalid raw inputs, including malformed/oversized JSON, use the request UUID as correlation journey when no trusted journey exists; platform is marked unknown in context rather than treated as a mobile/web product observation.
 - Attempt/failure/outcome writes are outside the business transaction. Telemetry exceptions log correlated diagnostics; `telemetry: degraded` warns after an otherwise successful booking. Durable success event failure rolls back the booking. A metrics endpoint and production SLO attainment remain later work.
 - `outbox_events` contains `availability_updated` with unique activity/version and booking reference. Payload `{eventId, ...availability}` is immutable domain context; dispatcher fields `attempts`/`dispatched_at` are writable. No Redis work runs during the booking transaction. Future invite claims extend this shared transaction after activity locking, preserving the existing booking before attribution/eligibility checks (PLANS.md §2.4); invitation validation and attribution are not implemented by this slice.
+
+### Invitation experiment (issue #4)
+
+Activity list/details include `assignment`: `{ experiment: "group_invites_v1", version,
+variant: "treatment" | "control", treatmentPercent, assignedAt }`. Details and creation
+responses also include `inviteCreationEnabled`, the current global creation switch.
+Assignments are stored before any activity response and are independent of exposure.
+
+`GET /api/activities/:id/invite-eligibility` accepts the optional demo actor header and
+returns `{ assignment, creationEnabled, allowed, reason }`. Reasons are `allowed`,
+`creation_disabled`, `control`, and `host_or_booker_required`. Only hosts and confirmed
+bookers in treatment may create while the switch is on. Future invitation creation
+handlers must call `requireInviteCreation` with the server switch at the write boundary;
+this read endpoint is presentation, not authorization for a later write. Resolution
+and claim handlers must not call the creation policy. Ordinary booking remains available
+in both groups. Current responses do not promise seat availability or trust verification.
+
+The client event endpoint additionally accepts schema 1 `experiment_exposed`, with the
+same shape as `activity_viewed`. Send it after rendering the assigned invitation
+experience, never from a list GET or activity creation request. Retry with the same
+event ID. Server ingestion derives assignment context from storage and rejects extra
+client assignment fields. Activity views and booking events carry the same trusted
+assignment context. Runtime credentials can read/insert assignments but cannot update
+or delete them.

@@ -4,10 +4,11 @@ export interface Identity {
   id: string; displayName: string; generation: number; acquisitionParentId: string | null; acquisitionRootId: string;
   synthetic: boolean; test: boolean;
 }
+export interface Assignment { experiment: 'group_invites_v1'; version: string; treatmentPercent: number; variant: 'treatment' | 'control'; assignedAt: string }
 export interface Activity {
   id: string; hostId: string; title: string; description: string; meetingLocation: string; startsAt: string; timezone: string;
   capacity: number; confirmedCount: number; remainingSeats: number; priceMinor: number; currency: string; version: number;
-  status: string; planId: string; participants?: { id: string; displayName: string }[];
+  inviteCreationEnabled?: boolean; assignment?: Assignment; status: string; planId: string; participants?: { id: string; displayName: string }[];
 }
 export class ApiError extends Error {
   constructor(public code: string, message: string, public retryable: boolean, public requestId: string) {
@@ -58,6 +59,15 @@ export function parseActivity(value: unknown): Activity {
     for (const value of data.participants) {
       const participant = record(value);
       if (typeof participant.id !== 'string' || typeof participant.displayName !== 'string') throw new Error('The API returned invalid participants.');
+    }
+  }
+  if (data.inviteCreationEnabled !== undefined && typeof data.inviteCreationEnabled !== 'boolean') throw new Error('The API returned an invalid invitation switch.');
+  if (data.assignment !== undefined) {
+    const assignment = record(data.assignment);
+    if (assignment.experiment !== 'group_invites_v1' || typeof assignment.version !== 'string' || !assignment.version.trim() ||
+      !Number.isInteger(assignment.treatmentPercent) || Number(assignment.treatmentPercent) < 0 || Number(assignment.treatmentPercent) > 100 ||
+      !['treatment', 'control'].includes(String(assignment.variant)) || typeof assignment.assignedAt !== 'string' || !Number.isFinite(Date.parse(assignment.assignedAt))) {
+      throw new Error('The API returned an invalid invitation assignment.');
     }
   }
   return data as unknown as Activity;

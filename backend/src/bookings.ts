@@ -1,3 +1,4 @@
+import { assignmentColumns } from './experiments.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { DomainError, exact, object, platform, rows, text, uuid, type Database } from './domain.js';
@@ -28,7 +29,7 @@ async function availability(db: Database, activityId: string): Promise<Availabil
 async function event(db: Database, name: string, intent: Intent, actor: Actor, context: object, booking?: Booking) {
   await db.query(`INSERT INTO analytics_events
     (id,schema_version,name,occurred_at,source,platform,actor_id,journey_id,activity_id,plan_id,booking_id,context,synthetic,test)
-    VALUES ($1,1,$2,clock_timestamp(),'server',$3,$4,$5,$6,$7,$8,$9,
+    VALUES ($1,1,$2,clock_timestamp(),'server',$3,$4,$5,$6,$7,$8,$9::jsonb || jsonb_build_object('assignment',(SELECT ${assignmentColumns} FROM experiment_assignments e WHERE e.activity_id=$12)),
       $10 OR COALESCE((SELECT host.synthetic FROM activities a JOIN users host ON host.id=a.host_id WHERE a.id=$12),false),
       $11 OR COALESCE((SELECT host.test FROM activities a JOIN users host ON host.id=a.host_id WHERE a.id=$12),false))`,
   [randomUUID(), name, intent.platform, actor.id, intent.journeyId, booking?.activityId ?? null, booking?.planId ?? null,
@@ -162,7 +163,7 @@ export async function recordInvalidBooking(db: Database, context: { requestId: s
     // Invalid/missing entities contribute no flags; only resolved database rows classify the request.
     await db.query(`INSERT INTO analytics_events (id,schema_version,name,occurred_at,source,platform,actor_id,journey_id,activity_id,context,test,synthetic)
       SELECT $1,1,'booking_request_outcome',clock_timestamp(),'server','web',actor.id,$2,a.id,
-        $3::jsonb || jsonb_build_object('activityContext', CASE WHEN $5::uuid IS NULL THEN 'invalid_id' WHEN a.id IS NULL THEN 'not_found' ELSE 'resolved' END),
+        $3::jsonb || jsonb_build_object('assignment',(SELECT ${assignmentColumns} FROM experiment_assignments e WHERE e.activity_id=a.id),'activityContext', CASE WHEN $5::uuid IS NULL THEN 'invalid_id' WHEN a.id IS NULL THEN 'not_found' ELSE 'resolved' END),
         COALESCE(actor.test,false) OR COALESCE(host.test,false), COALESCE(actor.synthetic,false) OR COALESCE(host.synthetic,false)
       FROM (SELECT 1) seed LEFT JOIN users actor ON actor.id=$4
       LEFT JOIN activities a ON a.id=$5 LEFT JOIN users host ON host.id=a.host_id`,

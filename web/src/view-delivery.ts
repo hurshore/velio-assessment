@@ -2,7 +2,7 @@ import { api, message } from './api';
 import { isRecord, unexpectedResponseMessage } from './response-envelope';
 
 export interface RenderedViewEvent {
-  readonly id: string; readonly schemaVersion: 1; readonly name: 'activity_viewed'; readonly source: 'client'; readonly platform: 'web';
+  readonly id: string; readonly schemaVersion: 1; readonly name: 'activity_viewed' | 'experiment_exposed'; readonly source: 'client'; readonly platform: 'web';
   readonly occurredAt: string; readonly actorId?: string; readonly journeyId: string; readonly activityId: string; readonly planId: string;
 }
 interface Delivery {

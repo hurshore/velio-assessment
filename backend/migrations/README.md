@@ -11,3 +11,8 @@ Host migrations require `RUNTIME_DB_USER` naming the existing runtime login. The
 `003` adds actor/operation-scoped booking keys, a durable availability outbox and independent `booking_reconciliation` view; grants runtime INSERT on bookings and UPDATE only on activity count/version, key results and outbox delivery state. Bookings remain immutable to the runtime role. Redis dispatch is owned by #5.
 
 `004` adds `bookings(activity_id) INCLUDE (id)` to keep activity-scoped reconciliation and participant reads from scanning unrelated membership. The reconciliation view, row-lock ordering and capacity constraints are unchanged. A representative 100,000-booking plan comparison is captured in [the booking verification report](../../docs/verification/seat-booking.md).
+
+005 persists `group_invites_v1` assignment history. It backfills existing activities
+using version 1 at 50% without emitting exposure. Runtime may insert/read but cannot
+rewrite/delete assignments. New API activity and assignment writes share one SQL
+statement. Seed files assign only their owned fixtures and preserve existing rows.

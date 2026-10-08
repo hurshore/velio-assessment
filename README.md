@@ -90,3 +90,29 @@ Open activity details under a selected demo identity. Book one seat shows pendin
 Own-booking lookup restores the same confirmation after reopening, including a full or cancelled activity. An uncertain response triggers lookup; unresolved requests retain their actor/activity key in browser storage and offer check/retry with that same key. The losing last-seat claimant keeps their details and receives a sold-out explanation. Storage failure is visible; selecting the same identity still permits server recovery. No payment is collected.
 
 Focused verification: `node --env-file=.env --import tsx --test backend/test/bookings.test.ts` and `npm run test --workspace web -- src/SeatBooking.test.tsx`. A read-only `booking_reconciliation` SQL view compares confirmed rows to stored counts and detects overselling independently. New allocations refuse a mismatched counter. Local tests include 50 coordinated overlapping requests against one and three seats and pre-commit rollback injection. Attempt/failure/raw outcome telemetry is outside the business transaction and failures are logged; degraded telemetry on a successful response is shown without invalidating confirmation.
+
+### Invitation rollout
+
+`group_invites_v1` assigns each activity once, using a deterministic hash of experiment
+name, version and activity UUID. New activities snapshot `INVITE_EXPERIMENT_VERSION`
+(default `1`) and `INVITE_TREATMENT_PERCENT` (default `50`, integer 0–100). Configuration
+changes or restarts affect only new activities. Migration 005 backfills existing
+activities with version 1 at 50%, without inventing exposure events. Allocation is a
+cohort setting, not a guarantee that a small sample will contain that exact percentage.
+
+`INVITE_CREATION_ENABLED=false` disables new creation in all groups. Restart the API
+after changing environment settings. Both groups can still book; future invitation
+resolution/claim routes must honor issued valid codes independently of this switch.
+Upcoming public/vouch creation routes must enforce `requireInviteCreation`, including
+host routes. Sharing endpoints arrive in those tickets; this ticket exposes the policy,
+stable assignment and displayed experience tracking.
+
+Safety stages are internal correctness/delivery checks, a limited eligible-activity
+cohort, then expanded treatment with a retained ordinary-booking holdout. A production
+90/10 cohort needs sample-size assessment before adoption. Keep the version/allocation
+fixed within a cohort; do not reinterpret existing assignments when rollout changes.
+Compare all assigned activities in fixed windows, including those without exposure,
+on participants and the provisional two-person formed-plan threshold. Attendance is
+still unmeasured, and cross-activity social spillovers remain a limitation. A no-invite
+holdout cannot measure invitation open-to-claim conversion; that needs a separate guest
+experience comparison with invitations enabled in both groups.

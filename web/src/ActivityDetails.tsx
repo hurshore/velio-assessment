@@ -46,6 +46,10 @@ function RenderedActivity({ activity, actorId, journeyId, delivery, refresh }: {
   useEffect(() => {
     delivery.capture(event, activity.title);
   }, [delivery, event, activity.title]);
+  const [exposure] = useState<RenderedViewEvent>(() => ({ ...event, id: crypto.randomUUID(), name: 'experiment_exposed' }));
+  useEffect(() => {
+    if (activity.assignment) delivery.capture(exposure, `${activity.title} invitation experience`);
+  }, [delivery, exposure, activity.assignment, activity.title]);
   const time = new Intl.DateTimeFormat(undefined, { dateStyle: 'full', timeStyle: 'short', timeZone: activity.timezone }).format(new Date(activity.startsAt));
   return <>
     <h3>{activity.title}</h3>
@@ -60,6 +64,11 @@ function RenderedActivity({ activity, actorId, journeyId, delivery, refresh }: {
     </dl>
     <p className="hint">Availability is a server snapshot. Refresh details for the latest counts.</p>
     <p className="hint">Shared plan: {activity.planId}</p>
+    {activity.assignment ? <section aria-label="Invitation experience">
+      <h3>Invitations</h3>
+      <p>{activity.assignment.variant === 'treatment' && activity.inviteCreationEnabled === false ? 'New invitations are temporarily unavailable. You can still book a seat.' : activity.assignment.variant === 'treatment' ? 'This activity is assigned to the invitation experience.' : 'This activity supports ordinary booking. New invitations are unavailable.'}</p>
+      <p className="hint">Invitations do not reserve seats. Invitation sharing is coming in a later update.</p>
+    </section> : null}
     <SeatBooking activity={activity} actorId={actorId} journeyId={journeyId} refresh={refresh} />
     <h3>Confirmed participants</h3>
     {activity.participants.length ? <ul>{activity.participants.map(user => <li key={user.id}>{user.displayName}</li>)}</ul> :
