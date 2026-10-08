@@ -134,3 +134,74 @@ test('a failed confirmation check keeps a definitive rejection settled', async (
   expect(screen.queryByRole('button', { name: 'Retry same booking request' })).toBeNull();
   expect(screen.getByRole('button', { name: 'Book one seat' }).hasAttribute('disabled')).toBe(true);
 });
+
+for (const unavailable of ['full', 'started', 'cancelled']) {
+  test(`failed initial lookup for ${unavailable} offers only lookup recovery without an intent`, async () => {
+    let failed = true;
+    const detail = { ...activity, status: unavailable === 'cancelled' ? 'cancelled' : 'scheduled',
+      startsAt: unavailable === 'started' ? '2020-01-01T00:00:00Z' : activity.startsAt,
+      remainingSeats: unavailable === 'full' ? 0 : 1, confirmedCount: unavailable === 'full' ? 1 : 0 };
+    const write = vi.fn();
+    setup(write, () => {
+      if (failed) throw new TypeError('Initial lookup unavailable');
+      return { booking: null, availability: { ...snapshot, remainingSeats: detail.remainingSeats, confirmedCount: detail.confirmedCount } };
+    }, () => detail);
+    await screen.findByRole('option', { name: 'Amara' });
+    fireEvent.click(await screen.findByRole('button', { name: 'View Sunrise walk' }));
+    await screen.findByText(/Initial lookup unavailable/);
+    expect(screen.queryByRole('button', { name: 'Retry same booking request' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Book one seat' }).hasAttribute('disabled')).toBe(true);
+    expect(localStorage.getItem(`velio.booking.v1:${actorId}:${activity.id}`)).toBeNull();
+    failed = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Retry confirmation lookup' }));
+    await waitFor(() => expect(screen.queryByText(/Initial lookup unavailable/)).toBeNull());
+    expect(screen.queryByRole('button', { name: 'Retry same booking request' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Book one seat' }).hasAttribute('disabled')).toBe(true);
+    expect(write).not.toHaveBeenCalled();
+  });
+}
+
+test('a missing-participants automatic refresh preserves confirmation and existing usable details', async () => {
+  let committed = false;
+  setup(async () => { committed = true; return response({ booking, availability: snapshot, telemetry: 'ok' }); }, undefined,
+    () => committed ? { ...activity, participants: undefined } as unknown as typeof activity : activity);
+  await open();
+  fireEvent.click(screen.getByRole('button', { name: 'Book one seat' }));
+  expect(await screen.findByText('Your seat is confirmed.')).toBeTruthy();
+  expect(await screen.findByText(/Could not refresh activity details.*participants/)).toBeTruthy();
+  expect(screen.getByText('Marina gate')).toBeTruthy();
+  expect(screen.getByText('No confirmed participants yet. Hosting does not consume a seat.')).toBeTruthy();
+});
+
+test('genuine uncertainty retains its submitted key through failed lookup and reopening', async () => {
+  const keys: string[] = [];
+  setup(async options => {
+    keys.push((options.headers as Record<string, string>)['Idempotency-Key']!);
+    if (keys.length === 1) throw new TypeError('Lost submission response');
+    return response({ booking, availability: snapshot, telemetry: 'ok' });
+  }, () => {
+    if (keys.length) throw new TypeError('Confirmation lookup unavailable');
+    return { booking: null, availability: { ...snapshot, remainingSeats: 1, confirmedCount: 0, version: 1 } };
+  }, () => keys.length ? { ...activity, remainingSeats: 0, confirmedCount: 1 } : activity);
+  await open();
+  fireEvent.click(screen.getByRole('button', { name: 'Book one seat' }));
+  await screen.findByRole('button', { name: 'Retry same booking request' });
+  expect(localStorage.getItem(`velio.booking.v1:${actorId}:${activity.id}`)).toBe(keys[0]);
+  fireEvent.click(screen.getByRole('button', { name: 'Close details' }));
+  fireEvent.click(screen.getByRole('button', { name: 'View Sunrise walk' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Retry same booking request' }));
+  expect(await screen.findByText('Your seat is confirmed.')).toBeTruthy();
+  expect(keys).toHaveLength(2);
+  expect(keys[1]).toBe(keys[0]);
+});
+
+test('manual refresh also rejects missing participants without replacing usable details', async () => {
+  let partial = false;
+  setup(vi.fn(), undefined, () => partial ? { ...activity, participants: undefined } as unknown as typeof activity : activity);
+  await open();
+  partial = true;
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh details' }));
+  expect(await screen.findByText(/Could not refresh activity details.*participants/)).toBeTruthy();
+  expect(screen.getByText('Marina gate')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Book one seat' }).hasAttribute('disabled')).toBe(false);
+});

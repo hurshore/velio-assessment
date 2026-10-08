@@ -62,6 +62,12 @@ export function parseActivity(value: unknown): Activity {
   }
   return data as unknown as Activity;
 }
+export type ActivityDetail = Activity & { participants: NonNullable<Activity['participants']> };
+export function parseActivityDetail(value: unknown): ActivityDetail {
+  const activity = parseActivity(value);
+  if (!activity.participants) throw new Error('The API returned invalid participants.');
+  return { ...activity, participants: activity.participants };
+}
 export function parseList<T>(value: unknown, parse: (item: unknown) => T): T[] {
   if (!Array.isArray(value)) throw new Error('The API returned an unexpected list.');
   return value.map(parse);

@@ -256,3 +256,69 @@ test('started/cancelled seeds are repeatable and propagate synthetic context to 
   assert.equal(events.rowCount, 6);
   assert.ok(events.rows.every(event => event.synthetic && event.test));
 });
+
+test('invalid organic requests inherit trusted activity-host markers and ignore supplied markers', async () => {
+  const { activity } = await fixture();
+  const actor = (await request('/identities', { displayName: 'Organic invalid requester', journeyId: randomUUID(), platform: 'web' })).data.id;
+  for (const body of [{ platform: 'web', journeyId: randomUUID() }, { platform: 'web', journeyId: randomUUID(), synthetic: false, test: false }]) {
+    const result = await request(`/activities/${activity.id}/bookings`, body, actor);
+    assert.equal(result.status, 400);
+    const [event] = (await owner.query("SELECT * FROM analytics_events WHERE context->>'requestId'=$1", [result.requestId])).rows;
+    assert.equal(event.synthetic, true);
+    assert.equal(event.test, true);
+    assert.equal(event.activity_id, activity.id);
+    assert.equal(event.context.activityContext, 'resolved');
+  }
+  const malformed = await fetch(`${base}/activities/${activity.id}/bookings`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Demo-Actor-Id': actor }, body: '{' });
+  assert.equal(malformed.status, 400);
+  const { requestId } = await malformed.json();
+  const [event] = (await owner.query("SELECT * FROM analytics_events WHERE context->>'requestId'=$1", [requestId])).rows;
+  assert.equal(event.synthetic, true);
+  assert.equal(event.test, true);
+});
+
+test('unresolved activity context falls back to trusted actor flags; client markers never classify requests', async () => {
+  const labelled = await fixture();
+  const organic = (await request('/identities', { displayName: 'Organic fallback fixture', journeyId: randomUUID(), platform: 'web' })).data.id;
+  for (const actor of [organic, labelled.actor]) {
+    for (const id of ['not-a-uuid', randomUUID()]) {
+      const result = await request(`/activities/${id}/bookings`, { platform: 'web', journeyId: randomUUID(), synthetic: true, test: true }, actor, randomUUID());
+      assert.equal(result.status, 400);
+      assert.equal(result.error.code, 'INVALID_REQUEST');
+      const [event] = (await owner.query("SELECT * FROM analytics_events WHERE context->>'requestId'=$1", [result.requestId])).rows;
+      assert.equal(event.activity_id, null);
+      assert.equal(event.synthetic, actor === labelled.actor);
+      assert.equal(event.test, actor === labelled.actor);
+      assert.equal(event.context.activityContext, id === 'not-a-uuid' ? 'invalid_id' : 'not_found');
+    }
+  }
+  const result = await book(randomUUID(), labelled.actor);
+  assert.equal(result.status, 404);
+  const events = (await owner.query("SELECT synthetic,test FROM analytics_events WHERE context->>'requestId'=$1", [result.requestId])).rows;
+  assert.ok(events.every(event => event.synthetic && event.test));
+  // A trusted test-only host contributes test independently of synthetic.
+  await owner.query('UPDATE users SET synthetic=false WHERE id=$1', [labelled.actor]);
+  const inherited = await request(`/activities/${labelled.activity.id}/bookings`, {}, organic);
+  const [event] = (await owner.query("SELECT synthetic,test FROM analytics_events WHERE context->>'requestId'=$1", [inherited.requestId])).rows;
+  assert.equal(event.synthetic, false);
+  assert.equal(event.test, true);
+});
+
+test('telemetry insertion failure preserves shape, identity and malformed JSON validation responses', async () => {
+  const { actor, activity } = await fixture();
+  await owner.query(`CREATE FUNCTION fail_invalid_telemetry() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+    IF NEW.name='booking_request_outcome' AND NEW.context->>'stage'='validation' THEN RAISE EXCEPTION 'Injected invalid telemetry failure'; END IF; RETURN NEW; END $$;
+    CREATE TRIGGER fail_invalid_telemetry BEFORE INSERT ON analytics_events FOR EACH ROW EXECUTE FUNCTION fail_invalid_telemetry()`);
+  try {
+    const shape = await request(`/activities/${activity.id}/bookings`, { platform: 'web' }, actor);
+    assert.equal(shape.status, 400);
+    assert.equal(shape.error.code, 'INVALID_REQUEST');
+    assert.equal(shape.error.retryable, false);
+    const identity = await request(`/activities/${activity.id}/bookings`, {}, randomUUID());
+    assert.equal(identity.status, 401);
+    assert.equal(identity.error.code, 'IDENTITY_REQUIRED');
+    const malformed = await fetch(`${base}/activities/${activity.id}/bookings`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Demo-Actor-Id': actor }, body: '{' });
+    assert.equal(malformed.status, 400);
+    assert.equal((await malformed.json()).error.code, 'INVALID_JSON');
+  } finally { await owner.query('DROP TRIGGER fail_invalid_telemetry ON analytics_events; DROP FUNCTION fail_invalid_telemetry()'); }
+});

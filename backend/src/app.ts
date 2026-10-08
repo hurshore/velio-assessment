@@ -84,8 +84,11 @@ export function createApp(dependencies: Dependencies, webOrigin: string, logFail
     logFailure({ component: 'http', requestId: response.locals.requestId }, error);
     const invalidJson = error instanceof SyntaxError && 'type' in error && error.type === 'entity.parse.failed';
     const oversized = error?.type === 'entity.too.large';
-    if ((invalidJson || oversized) && request.method === 'POST' && /^\/api\/activities\/[^/]+\/bookings\/?$/.test(request.path)) {
-      await recordInvalidBooking(dependencies.postgres, { requestId: response.locals.requestId, actorId: request.get('X-Demo-Actor-Id'),
+    const bookingPath = request.path.match(/^\/api\/activities\/([^/]+)\/bookings\/?$/);
+    if ((invalidJson || oversized) && request.method === 'POST' && bookingPath) {
+      let activityId: string | undefined;
+      try { activityId = decodeURIComponent(bookingPath[1]!); } catch { /* Invalid path encoding has no entity context. */ }
+      await recordInvalidBooking(dependencies.postgres, { requestId: response.locals.requestId, actorId: request.get('X-Demo-Actor-Id'), activityId,
         code: invalidJson ? 'INVALID_JSON' : 'PAYLOAD_TOO_LARGE' }, logFailure);
     }
     response.status(invalidJson ? 400 : oversized ? 413 : 500).json({

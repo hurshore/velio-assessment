@@ -142,7 +142,7 @@ export function bookingRoutes(db: BookingDatabase, logFailure: FailureReporter) 
       intent = { actorId: user.id, activityId: uuid(request.params.id, 'Activity').toLowerCase(), key: text(request.get('Idempotency-Key'), 'Idempotency key', 128),
         platform: platform(body.platform), journeyId: uuid(body.journeyId, 'Journey'), requestId: response.locals.requestId };
     } catch (error) {
-      await recordInvalidBooking(db, { requestId: response.locals.requestId, actorId: request.get('X-Demo-Actor-Id'),
+      await recordInvalidBooking(db, { requestId: response.locals.requestId, actorId: request.get('X-Demo-Actor-Id'), activityId: request.params.id,
         code: error instanceof DomainError ? error.code : 'TECHNICAL_ERROR', technical: !(error instanceof DomainError) }, logFailure);
       throw error;
     }
@@ -152,14 +152,21 @@ export function bookingRoutes(db: BookingDatabase, logFailure: FailureReporter) 
   return router;
 }
 
-export async function recordInvalidBooking(db: Database, context: { requestId: string; actorId?: string; code: string; technical?: boolean }, logFailure: FailureReporter) {
+function optionalUuid(value: string | undefined): string | null {
+  try { return value ? uuid(value, 'Telemetry context').toLowerCase() : null; }
+  catch { return null; }
+}
+export async function recordInvalidBooking(db: Database, context: { requestId: string; actorId?: string; activityId?: string; code: string; technical?: boolean }, logFailure: FailureReporter) {
   try {
-    let actorId: string | null = null;
-    try { if (context.actorId) actorId = uuid(context.actorId, 'Identity'); } catch { /* Untrusted actor IDs are omitted. */ }
-    await db.query(`INSERT INTO analytics_events (id,schema_version,name,occurred_at,source,platform,actor_id,journey_id,context,test,synthetic)
-      SELECT $1,1,'booking_request_outcome',clock_timestamp(),'server','web',u.id,$2,$3,COALESCE(u.test,false),COALESCE(u.synthetic,false)
-      FROM (SELECT 1) seed LEFT JOIN users u ON u.id=$4`,
+    const activityId = optionalUuid(context.activityId);
+    // Invalid/missing entities contribute no flags; only resolved database rows classify the request.
+    await db.query(`INSERT INTO analytics_events (id,schema_version,name,occurred_at,source,platform,actor_id,journey_id,activity_id,context,test,synthetic)
+      SELECT $1,1,'booking_request_outcome',clock_timestamp(),'server','web',actor.id,$2,a.id,
+        $3::jsonb || jsonb_build_object('activityContext', CASE WHEN $5::uuid IS NULL THEN 'invalid_id' WHEN a.id IS NULL THEN 'not_found' ELSE 'resolved' END),
+        COALESCE(actor.test,false) OR COALESCE(host.test,false), COALESCE(actor.synthetic,false) OR COALESCE(host.synthetic,false)
+      FROM (SELECT 1) seed LEFT JOIN users actor ON actor.id=$4
+      LEFT JOIN activities a ON a.id=$5 LEFT JOIN users host ON host.id=a.host_id`,
     [randomUUID(), context.requestId, { outcome: context.technical ? 'technical_error' : 'invalid', eligibility: context.technical ? 'unknown' : 'ineligible',
-      stage: 'validation', requestId: context.requestId, code: context.code, platformKnown: false }, actorId]);
+      stage: 'validation', requestId: context.requestId, code: context.code, platformKnown: false, operation: 'book_activity' }, optionalUuid(context.actorId), activityId]);
   } catch (error) { logFailure({ component: 'booking.telemetry', requestId: context.requestId }, error); }
 }
