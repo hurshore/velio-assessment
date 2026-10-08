@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, ApiError, message, parseBookingState, persist, stored, type Activity, type BookingState } from './api';
 
-export function SeatBooking({ activity, actorId, journeyId, refresh }: { activity: Activity; actorId: string; journeyId: string; refresh: () => void }) {
+export function SeatBooking({ activity, actorId, journeyId, refresh, stale = false }: { stale?: boolean; activity: Activity; actorId: string; journeyId: string; refresh: () => void }) {
   const storageKey = `velio.booking.v1:${actorId}:${activity.id}`;
   const [initialKey] = useState(() => stored(storageKey));
   const [key] = useState(() => initialKey || crypto.randomUUID());
@@ -82,6 +82,7 @@ export function SeatBooking({ activity, actorId, journeyId, refresh }: { activit
   const seats = Math.min(activity.remainingSeats, state?.availability.remainingSeats ?? activity.remainingSeats);
   const unavailable = activity.status !== 'scheduled' || Date.parse(activity.startsAt) <= Date.now() || seats === 0;
   return <section aria-label="Your booking" aria-live="polite">
+    {stale ? <p>Availability may be stale. Live recovery must finish before a new booking.</p> : null}
     {!actorId ? <p>Select a demo identity to book one seat.</p> : <>
       {phase === 'confirmed' && booking ? <>
         <p>Your seat is confirmed.</p>
@@ -90,7 +91,7 @@ export function SeatBooking({ activity, actorId, journeyId, refresh }: { activit
       </> : <>
         {phase === 'checking' ? <p role="status">Checking your confirmation…</p> : null}
         {unavailable && phase !== 'uncertain' ? <p>{seats === 0 ? 'This activity is sold out.' : 'This activity is no longer bookable.'}</p> : null}
-        <button disabled={phase === 'pending' || phase === 'checking' || phase === 'lookup_failed' || (unavailable && phase !== 'uncertain') || phase === 'rejected'} onClick={() => void submit()}>
+        <button disabled={(stale && phase !== 'uncertain') || phase === 'pending' || phase === 'checking' || phase === 'lookup_failed' || (unavailable && phase !== 'uncertain') || phase === 'rejected'} onClick={() => void submit()}>
           {phase === 'pending' ? 'Booking your seat…' : phase === 'uncertain' ? 'Retry same booking request' : 'Book one seat'}
         </button>
         {phase === 'lookup_failed' || phase === 'uncertain' || phase === 'rejected' ? <button onClick={() => void recover()}>{phase === 'lookup_failed' ? 'Retry confirmation lookup' : 'Check confirmation'}</button> : null}

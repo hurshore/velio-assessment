@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import express, { type ErrorRequestHandler } from 'express';
 import { createInvitePolicy, experimentRoutes, type InviteConfig } from './experiments.js';
+import type { AvailabilityEvent } from './outbox.js';
+import { liveMetricsRoutes } from './live-metrics.js';
 import { bookingRoutes, recordInvalidBooking, type BookingDatabase } from './bookings.js';
 import { eventRoutes } from './events.js';
 import { activityRoutes } from './activities.js';
@@ -12,6 +14,11 @@ export interface Dependencies {
   postgres: BookingDatabase;
   redis: { ping: () => Promise<string> };
   invites: InviteConfig;
+  liveProcessId?: string;
+  accepting?: () => boolean;
+  requestStarted?: () => () => void;
+  committed?: (event: AvailabilityEvent) => void;
+  liveHealth?: () => { processId: string; measurementFailures: number };
 }
 
 export function createApp(dependencies: Dependencies, webOrigin: string, logFailure: FailureReporter = reportFailure) {
@@ -50,6 +57,16 @@ export function createApp(dependencies: Dependencies, webOrigin: string, logFail
     }
     next();
   });
+  app.use((_request, response, next) => {
+    if (dependencies.accepting && !dependencies.accepting()) return next(new DomainError(503, 'SHUTTING_DOWN', 'API is shutting down. Retry on a healthy connection.'));
+    const completed = dependencies.requestStarted?.();
+    if (completed) {
+      let done = false;
+      const finish = () => { if (!done) { done = true; completed(); } };
+      response.once('finish', finish); response.once('close', finish);
+    }
+    next();
+  });
   app.use(express.json({ limit: '16kb' }));
   app.get('/api/health', (_request, response) => {
     response.json({ data: { status: 'ok', service: 'velio-api' }, requestId: response.locals.requestId });
@@ -72,9 +89,10 @@ export function createApp(dependencies: Dependencies, webOrigin: string, logFail
     }
     response.json({ data: { status: 'ok', dependencies: { postgres: 'ok', redis: 'ok' } }, requestId: response.locals.requestId });
   });
+  app.use('/api/metrics', liveMetricsRoutes(dependencies.postgres, dependencies.liveHealth));
   app.use('/api/events', eventRoutes(dependencies.postgres));
   app.use('/api/activities', experimentRoutes(invitePolicy));
-  app.use('/api/activities', bookingRoutes(dependencies.postgres, logFailure));
+  app.use('/api/activities', bookingRoutes(dependencies.postgres, logFailure, { committed: dependencies.committed, processId: dependencies.liveProcessId, workStarted: dependencies.requestStarted }));
   app.use('/api/activities', activityRoutes(dependencies.postgres, dependencies.invites, invitePolicy));
   app.use('/api/identities', identityRoutes(dependencies.postgres));
   app.use((_request, response) => {

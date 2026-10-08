@@ -9,18 +9,20 @@
     "migrate": "node --env-file=../.env --import tsx src/migrate.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
-    "test": "node --env-file-if-exists=../.env --import tsx --test test/*.test.ts",
+    "test": "node --env-file-if-exists=../.env --import tsx --test --test-concurrency=1 test/*.test.ts",
     "seed": "node --env-file=../.env --import tsx src/seed.ts"
   },
   "dependencies": {
     "express": "5.2.1",
     "pg": "8.23.1",
-    "redis": "6.3.0"
+    "redis": "6.3.0",
+    "ws": "8.22.0"
   },
   "devDependencies": {
     "@types/express": "5.0.6",
-    "@types/pg": "8.23.1",
     "@types/node": "26.6.4",
+    "@types/pg": "8.23.1",
+    "@types/ws": "8.18.1",
     "tsx": "4.23.15",
     "typescript": "7.0.2"
   }
