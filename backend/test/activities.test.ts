@@ -159,3 +159,12 @@ test('labelled seeds can be replayed without changing plans or duplicating signu
   const events = await owner.query("SELECT count(*)::int AS count FROM analytics_events WHERE id IN ('e1000000-0000-4000-8000-000000000001','e1000000-0000-4000-8000-000000000002')");
   assert.equal(events.rows[0].count, 2);
 });
+
+test('anonymous seed activity views retain synthetic markers', async () => {
+  const id = randomUUID();
+  const response = await request('/events', { id, schemaVersion: 1, name: 'activity_viewed', occurredAt: new Date().toISOString(),
+    source: 'client', platform: 'web', journeyId: randomUUID(), activityId: 'b1000000-0000-4000-8000-000000000001' });
+  assert.equal(response.status, 202);
+  const event = await owner.query('SELECT synthetic FROM analytics_events WHERE id=$1', [id]);
+  assert.equal(event.rows[0].synthetic, true);
+});
