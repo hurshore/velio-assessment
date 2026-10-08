@@ -18,9 +18,14 @@ let runtime: pg.Pool;
 let server: ReturnType<ReturnType<typeof createApp>['listen']>;
 let base: string;
 const failures: unknown[] = [];
+// Live hooks as server.ts wires them, observed directly.
+const liveProcessId = randomUUID();
+const committedEvents: { bookingId: string; activityId: string; version: number }[] = [];
+let inFlight = 0;
 async function start(invites: InviteConfig) {
   if (server) await new Promise<void>(resolve => server.close(() => resolve()));
-  server = createApp({ invites, postgres: runtime, redis: { ping: async () => 'PONG' } }, 'http://localhost:5173', (_context, error) => { failures.push(error); })
+  server = createApp({ invites, postgres: runtime, redis: { ping: async () => 'PONG' }, liveProcessId, committed: event => { committedEvents.push(event); },
+    requestStarted: () => { inFlight += 1; return () => { inFlight -= 1; }; } }, 'http://localhost:5173', (_context, error) => { failures.push(error); })
     .listen(0, '127.0.0.1');
   await once(server, 'listening');
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`;
@@ -623,4 +628,22 @@ test('started, completed, cancelled and expired links mean the same thing for pr
     // An existing member still recovers their seat whatever the link's state.
     assert.equal((await claim(inviteCode, recovered)).status, 200);
   }
+});
+
+test('a committed claim publishes live availability like a direct booking; replays publish nothing', async () => {
+  const host = (await identity()).id;
+  const listing = await activity(host, 2);
+  const { code } = (await share(listing.id, host)).data;
+  const guest = (await identity()).id;
+  committedEvents.length = 0;
+  const pending = claim(code, guest);
+  await new Promise(resolve => setImmediate(resolve));
+  const claimed = await pending;
+  assert.equal(claimed.status, 201);
+  assert.deepEqual(committedEvents.map(event => [event.bookingId, event.activityId, event.version]), [[claimed.data.booking.id, listing.id, 2]]);
+  const [outbox] = (await owner.query('SELECT origin_process_id FROM outbox_events WHERE booking_id=$1', [claimed.data.booking.id])).rows;
+  assert.equal(outbox.origin_process_id, liveProcessId);
+  assert.equal((await claim(code, guest)).status, 200);
+  assert.equal(committedEvents.length, 1);
+  assert.equal(inFlight, 0);
 });

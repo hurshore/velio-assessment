@@ -8,7 +8,7 @@ Migration failures retain the original error and log the filename. Rollback/conn
 
 Host migrations require `RUNTIME_DB_USER` naming the existing runtime login. The runner sets `velio.runtime_role` for SQL grants after obtaining its migration lock. `001` owns organic identity/acquisition/event storage; `002` owns activities, a database-created unique plan and read-only confirmed membership. `npm run seed` adds repeatable synthetic host scenarios using migration credentials; it is separate from schema migration and never resets existing data.
 
-`003` adds actor/operation-scoped booking keys, a durable availability outbox and independent `booking_reconciliation` view; grants runtime INSERT on bookings and UPDATE only on activity count/version, key results and outbox delivery state. Bookings remain immutable to the runtime role. Redis dispatch is owned by #5.
+`003` adds actor/operation-scoped booking keys, a durable availability outbox and independent `booking_reconciliation` view; grants runtime INSERT on bookings and UPDATE only on activity count/version, key results and outbox delivery state. Bookings remain immutable to the runtime role. Redis dispatch is owned by #7.
 
 `004` adds `bookings(activity_id) INCLUDE (id)` to keep activity-scoped reconciliation and participant reads from scanning unrelated membership. The reconciliation view, row-lock ordering and capacity constraints are unchanged. A representative 100,000-booking plan comparison is captured in [the booking verification report](../../docs/verification/seat-booking.md).
 
@@ -26,7 +26,11 @@ repair with an explicit cohort before retrying. No trigger invents configuration
 helper shared by API creation and seeds, with explicit arguments and no history
 rewrite on replay. Runtime assignment update/delete restrictions remain unchanged.
 
-`007` owns public invitation and attribution history. `invites` stores the opaque code,
+`007` adds expiring outbox dispatch leases/retry scheduling, a booking-transaction origin process marker, durable gateway lifetimes, and live observation/delivery records. Runtime can insert observation denominators and delivery expectations, and update only gateway stop timestamps, issued snapshot versions and ACK timestamps/delays. Booking-owned payloads and immutable booking/referral history remain protected.
+
+`008` indexes persisted outbox creation/origin ranges and exact observation times used by bounded reconciliation pages and windowed metrics. It changes no historical observation/delivery evidence.
+
+`009` owns public invitation and attribution history. `invites` stores the opaque code,
 activity/plan, inviter role, rail, expiry and a snapshot of the inviter's signup
 ancestry. Composite foreign keys tie invited users and `signup_attribution` to that exact
 snapshot (parent, root, rail, generation + 1) and tie each `invite_redemptions` edge to

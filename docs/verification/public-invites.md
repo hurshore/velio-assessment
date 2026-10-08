@@ -21,7 +21,7 @@ Scope: PLANS.md §§1.2, 1.4, 2.3, 2.4, 2.6, 2.7, 3.1–3.3 and 4.1. Node 24.21.
 - `npm run typecheck`: passed.
 - `npm test`: 12 root, 88 backend (24 invitation scenarios) and 86 web (19 invitation) tests passed, none skipped. The first full run failed with `remaining connection slots are reserved`, because another worktree's suite and API servers were using the same local PostgreSQL concurrently. Once that run finished, the suite passed unchanged. The invitation suite keeps its runtime pool at 25 connections so it can run alongside the existing 60-connection booking suite.
 - `npm run build` and `npm run mobile:check` (13 Flutter tests): passed.
-- Local dev database: migration 007 applied to the existing populated volume, and `npm run seed` ran twice. An HTTP smoke against the dev API covered seeded link preview (`expired`), fresh creation and preview (`valid`), invite-stamped signup (generation 1, rail `public`), claim (201 with redemption) and same-key replay (`replayed: true`). The smoke guest is marked synthetic/test and holds one seat in `Invitations treatment · demo seed`.
+- Local dev database: the public-invites migration (then numbered 007, now 009 after #7 took 007/008) applied to the existing populated volume, and `npm run seed` ran twice. An HTTP smoke against the dev API covered seeded link preview (`expired`), fresh creation and preview (`valid`), invite-stamped signup (generation 1, rail `public`), claim (201 with redemption) and same-key replay (`replayed: true`). The smoke guest is marked synthetic/test and holds one seat in `Invitations treatment · demo seed`.
 
 ## Not verified here
 

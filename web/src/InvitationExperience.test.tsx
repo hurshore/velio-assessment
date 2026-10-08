@@ -96,7 +96,23 @@ test('missing or malformed assignment and policy fields fail closed at the rende
   }
 });
 
+// A new booking requires the actual rendered live boundary to have recovered.
+function recoveredLive() {
+  vi.stubGlobal('WebSocket',class {
+    static OPEN=1;
+    readyState=1;
+    onopen:(()=>void)|null=null;
+    onmessage:((event:{data:string})=>void)|null=null;
+    constructor(){queueMicrotask(()=>this.onopen?.());}
+    send(value:string){
+      if(JSON.parse(value).type!=='subscribe')return;
+      queueMicrotask(()=>this.onmessage?.({data:JSON.stringify({type:'snapshot',eventId:null,activityId:activity.id,version:activity.version,activity})}));
+    }
+    close(){this.readyState=3;}
+  });
+}
 test('unchanged booking/details refresh does not resend exposure; a changed displayed policy does', async () => {
+  recoveredLive();
   const events: Record<string, unknown>[]=[];
   let booked=false;
   let enabled=true;
@@ -135,6 +151,7 @@ test('unchanged booking/details refresh does not resend exposure; a changed disp
 });
 
 test('ordinary booking still confirms when invitation policy fields are malformed', async () => {
+  recoveredLive();
   const booking={id:'55555555-5555-4555-8555-555555555555',activityId:activity.id,planId:activity.planId,userId:activity.hostId,priceMinor:0,currency:'NGN',confirmedAt:'2026-10-08T15:00:00Z'};
   let booked=false;
   vi.stubGlobal('fetch',vi.fn().mockImplementation((url:string,options:RequestInit)=>{

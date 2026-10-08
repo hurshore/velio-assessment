@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useLiveActivity } from './useLiveActivity';
 import { SeatBooking } from './SeatBooking';
 import { PublicShare } from './PublicShare';
 import type { RenderedViewEvent, ViewDelivery } from './view-delivery';
@@ -9,6 +10,7 @@ export function ActivityDetails({ id, actorId, journeyId, close, delivery }: { d
   useEffect(() => { section.current?.focus(); }, []);
   const [detail, setDetail] = useState<ActivityDetail | null>(null);
   const [detailActor, setDetailActor] = useState<string | null>(null);
+  const live = useLiveActivity(id, detail, setDetail, detail?.id === id && detailActor === actorId);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -26,7 +28,11 @@ export function ActivityDetails({ id, actorId, journeyId, close, delivery }: { d
       const data = await api(`/activities/${id}`, { actorId: actorId || undefined, signal: controller.signal });
       if (controller.signal.aborted) return;
       const activity = parseActivityDetail(data);
-      setDetail(activity);
+      setDetail(previous => {
+        if (!previous || previous.id !== activity.id || activity.version >= previous.version) return activity;
+        // Refresh this actor's policy even when live availability already has a newer version.
+        return { ...previous, invitation: activity.invitation, assignment: activity.assignment, invitePolicy: activity.invitePolicy };
+      });
       setDetailActor(actorId);
       if (renewView) setViewVersion(value => value + 1);
     } catch (error) {
@@ -37,17 +43,23 @@ export function ActivityDetails({ id, actorId, journeyId, close, delivery }: { d
     void loadDetails(true);
     return () => pending.current?.abort();
   }, [loadDetails, attempt]);
+  useEffect(() => {
+    const refresh = () => { if (document.visibilityState !== 'hidden') void loadDetails(false); };
+    document.addEventListener('visibilitychange', refresh);
+    return () => document.removeEventListener('visibilitychange', refresh);
+  }, [loadDetails]);
   return <section ref={section} tabIndex={-1} aria-labelledby="detail-heading" aria-busy={loading}>
     <h2 id="detail-heading">Activity details</h2>
     <button onClick={close}>Close details</button>
     {!detail && !error ? <p role="status">Loading activity details…</p> : null}
     {error ? <p role="alert">{error}</p> : null}
+    <p role="status">{live.status}</p>
     <button disabled={loading} onClick={() => setAttempt(value => value + 1)}>Refresh details</button>
-    {detail && detail.id === id && detailActor === actorId ? <RenderedActivity sharing={sharing} refresh={() => void loadDetails(false)} delivery={delivery} key={`${detail.id}:${actorId}:${viewVersion}`} activity={detail} actorId={actorId} journeyId={journeyId} /> : null}
+    {detail && detail.id === id && detailActor === actorId ? <RenderedActivity sharing={sharing} stale={live.stale} refresh={() => void loadDetails(false)} delivery={delivery} key={`${detail.id}:${actorId}:${viewVersion}`} activity={detail} actorId={actorId} journeyId={journeyId} /> : null}
   </section>;
 }
 type Sharing = { invite: CreatedInvite | null; onCreated: (invite: CreatedInvite) => void };
-function RenderedActivity({ activity, actorId, journeyId, delivery, refresh, sharing }: { delivery: ViewDelivery; activity: ActivityDetail; actorId: string; journeyId: string; refresh: () => void; sharing: Sharing }) {
+function RenderedActivity({ activity, actorId, journeyId, delivery, refresh, stale, sharing }: { stale: boolean; delivery: ViewDelivery; activity: ActivityDetail; actorId: string; journeyId: string; refresh: () => void; sharing: Sharing }) {
   const [event] = useState<RenderedViewEvent>(() => ({ id: crypto.randomUUID(), schemaVersion: 1, name: 'activity_viewed', source: 'client', platform: 'web',
     occurredAt: new Date().toISOString(), actorId: actorId || undefined, journeyId, activityId: activity.id, planId: activity.planId }));
   useEffect(() => {
@@ -65,10 +77,11 @@ function RenderedActivity({ activity, actorId, journeyId, delivery, refresh, sha
       <dt>Availability</dt><dd>{activity.remainingSeats} of {activity.capacity} seats remaining · {activity.confirmedCount} confirmed</dd>
       <dt>Status</dt><dd>{activity.status}</dd>
     </dl>
-    <p className="hint">Availability is a server snapshot. Refresh details for the latest counts.</p>
+    <p className="hint">Availability changes until your booking commits. A displayed seat is not reserved.</p>
+    {activity.remainingSeats === 0 ? <p>This activity is full. Confirmed participants are shown below.</p> : null}
     <p className="hint">Shared plan: {activity.planId}</p>
     <InvitationExperience activity={activity} actorId={actorId} journeyId={journeyId} delivery={delivery} sharing={sharing} />
-    <SeatBooking activity={activity} actorId={actorId} journeyId={journeyId} refresh={refresh} />
+    <SeatBooking stale={stale} activity={activity} actorId={actorId} journeyId={journeyId} refresh={refresh} />
     <h3>Confirmed participants</h3>
     {activity.participants.length ? <ul>{activity.participants.map(user => <li key={user.id}>{user.displayName}</li>)}</ul> :
       <p>No confirmed participants yet. Hosting does not consume a seat.</p>}

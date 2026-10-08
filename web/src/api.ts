@@ -1,5 +1,10 @@
 import { isRecord, parseEnvelope, unexpectedResponseMessage } from './response-envelope';
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
+export function liveUrl() {
+  const url = new URL(apiBase + '/api/live', window.location.href);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  return url.href;
+}
 export interface Identity {
   id: string; displayName: string; generation: number; acquisitionParentId: string | null; acquisitionRootId: string;
   acquisitionRail: 'public' | 'vouch' | null; synthetic: boolean; test: boolean;

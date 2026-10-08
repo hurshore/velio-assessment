@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { assignmentJson, type InvitePolicy } from './experiments.js';
-import { bookingActor, bookSeat, recordInvalidBooking, requestPlatform, type Actor, type BookingDatabase, type Intent } from './bookings.js';
+import { bookingActor, bookSeat, recordInvalidBooking, requestPlatform, type Actor, type BookingDatabase, type Intent, type LiveHooks } from './bookings.js';
 import type { FailureReporter } from './diagnostics.js';
 import { DomainError, exact, marker, object, platform, rows, text, uuid, type Database } from './domain.js';
 import { inviteStateSql, previewStates, rejectUnavailableActivity, type PreviewState } from './invite-state.js';
@@ -90,37 +90,40 @@ export async function recordInviteOpen(db: Database, body: Record<string, unknow
 }
 
 // Resolution is a read: link-preview crawlers and prefetches never count as human opens.
-export function inviteRoutes(db: BookingDatabase, logFailure: FailureReporter) {
+export function inviteRoutes(db: BookingDatabase, logFailure: FailureReporter, live: LiveHooks = {}) {
   const router = Router();
   router.get('/:code', async (request, response) => {
     response.json({ data: (await resolveInvite(db, request.params.code)).preview, requestId: response.locals.requestId });
   });
   // Claims honor issued, unexpired invites regardless of the creation switch or later assignment changes.
   router.post('/:code/claims', async (request, response) => {
-    let intent: Intent;
-    let user: Actor;
-    let invite: ResolvedInvite | undefined;
-    // Same validation order as direct booking: identity, then request shape, then the target.
+    const completed = live.workStarted?.();
     try {
-      user = await bookingActor(db, request.get('X-Demo-Actor-Id'), 'claiming a seat');
-      const body = object(request.body);
-      exact(body, ['platform', 'journeyId']);
-      const key = text(request.get('Idempotency-Key'), 'Idempotency key', 128);
-      const source = platform(body.platform);
-      const journeyId = uuid(body.journeyId, 'Journey');
-      invite = await resolveInvite(db, request.params.code);
-      intent = { operation: 'claim_invite', actorId: user.id, activityId: invite.activityId, key, platform: source, journeyId, requestId: response.locals.requestId,
-        invite: { id: invite.id, inviterId: invite.inviterId, rail: invite.rail } };
-    } catch (error) {
-      // Attach invite context to the invalid outcome whenever the code itself resolves.
-      invite ??= await resolveInvite(db, request.params.code).catch(() => undefined);
-      await recordInvalidBooking(db, { requestId: response.locals.requestId, actorId: request.get('X-Demo-Actor-Id'), activityId: invite?.activityId,
-        inviteId: invite?.id, operation: 'claim_invite', platform: requestPlatform(request.body),
-        code: error instanceof DomainError ? error.code : 'TECHNICAL_ERROR', technical: !(error instanceof DomainError) }, logFailure);
-      throw error;
-    }
-    const result = await bookSeat(db, intent, user, logFailure);
-    response.status(result.replayed ? 200 : 201).json({ data: result, requestId: response.locals.requestId });
+      let intent: Intent;
+      let user: Actor;
+      let invite: ResolvedInvite | undefined;
+      // Same validation order as direct booking: identity, then request shape, then the target.
+      try {
+        user = await bookingActor(db, request.get('X-Demo-Actor-Id'), 'claiming a seat');
+        const body = object(request.body);
+        exact(body, ['platform', 'journeyId']);
+        const key = text(request.get('Idempotency-Key'), 'Idempotency key', 128);
+        const source = platform(body.platform);
+        const journeyId = uuid(body.journeyId, 'Journey');
+        invite = await resolveInvite(db, request.params.code);
+        intent = { operation: 'claim_invite', actorId: user.id, activityId: invite.activityId, key, platform: source, journeyId, requestId: response.locals.requestId,
+          invite: { id: invite.id, inviterId: invite.inviterId, rail: invite.rail } };
+      } catch (error) {
+        // Attach invite context to the invalid outcome whenever the code itself resolves.
+        invite ??= await resolveInvite(db, request.params.code).catch(() => undefined);
+        await recordInvalidBooking(db, { requestId: response.locals.requestId, actorId: request.get('X-Demo-Actor-Id'), activityId: invite?.activityId,
+          inviteId: invite?.id, operation: 'claim_invite', platform: requestPlatform(request.body),
+          code: error instanceof DomainError ? error.code : 'TECHNICAL_ERROR', technical: !(error instanceof DomainError) }, logFailure);
+        throw error;
+      }
+      const result = await bookSeat(db, intent, user, logFailure, live.committed, live.processId);
+      response.status(result.replayed ? 200 : 201).json({ data: result, requestId: response.locals.requestId });
+    } finally { completed?.(); }
   });
   return router;
 }
