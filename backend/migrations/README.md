@@ -7,3 +7,5 @@ The runner maintains its migration ledger and applies the host domain migrations
 Migration failures retain the original error and log the filename. Rollback/connection-close failures are reported separately and never replace the original failure.
 
 Host migrations require `RUNTIME_DB_USER` naming the existing runtime login. The runner sets `velio.runtime_role` for SQL grants after obtaining its migration lock. `001` owns organic identity/acquisition/event storage; `002` owns activities, a database-created unique plan and read-only confirmed membership. `npm run seed` adds repeatable synthetic host scenarios using migration credentials; it is separate from schema migration and never resets existing data.
+
+`003` adds actor/operation-scoped booking keys, a durable availability outbox and independent `booking_reconciliation` view; grants runtime INSERT on bookings and UPDATE only on activity count/version, key results and outbox delivery state. Bookings remain immutable to the runtime role. Redis dispatch is owned by #5.

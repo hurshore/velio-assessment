@@ -1,3 +1,4 @@
+import { SeatBooking } from './SeatBooking';
 import type { RenderedViewEvent, ViewDelivery } from './view-delivery';
 import { useEffect, useRef, useState } from 'react';
 import { api, message, parseActivity, type Activity } from './api';
@@ -25,10 +26,12 @@ export function ActivityDetails({ id, actorId, journeyId, close, delivery }: { d
     {!detail && !error ? <p role="status">Loading activity details…</p> : null}
     {error ? <p role="alert">{error}</p> : null}
     <button disabled={!detail && !error} onClick={() => setAttempt(value => value + 1)}>Refresh details</button>
-    {detail ? <RenderedActivity delivery={delivery} key={`${detail.id}:${actorId}`} activity={detail} actorId={actorId} journeyId={journeyId} /> : null}
+    {detail ? <RenderedActivity refresh={() => {
+      void api(`/activities/${id}`).then(data => setDetail(parseActivity(data))).catch(error => setError(message(error)));
+    }} delivery={delivery} key={`${detail.id}:${actorId}`} activity={detail} actorId={actorId} journeyId={journeyId} /> : null}
   </section>;
 }
-function RenderedActivity({ activity, actorId, journeyId, delivery }: { delivery: ViewDelivery; activity: Activity; actorId: string; journeyId: string }) {
+function RenderedActivity({ activity, actorId, journeyId, delivery, refresh }: { delivery: ViewDelivery; activity: Activity; actorId: string; journeyId: string; refresh: () => void }) {
   const [event] = useState<RenderedViewEvent>(() => ({ id: crypto.randomUUID(), schemaVersion: 1, name: 'activity_viewed', source: 'client', platform: 'web',
     occurredAt: new Date().toISOString(), actorId: actorId || undefined, journeyId, activityId: activity.id, planId: activity.planId }));
   useEffect(() => {
@@ -48,6 +51,7 @@ function RenderedActivity({ activity, actorId, journeyId, delivery }: { delivery
     </dl>
     <p className="hint">Availability is a server snapshot. Refresh details for the latest counts.</p>
     <p className="hint">Shared plan: {activity.planId}</p>
+    <SeatBooking activity={activity} actorId={actorId} journeyId={journeyId} refresh={refresh} />
     <h3>Confirmed participants</h3>
     {activity.participants!.length ? <ul>{activity.participants!.map(user => <li key={user.id}>{user.displayName}</li>)}</ul> :
       <p>No confirmed participants yet. Hosting does not consume a seat.</p>}

@@ -6,5 +6,6 @@ const client = new pg.Client({ connectionString });
 try {
   await client.connect();
   await client.query(await readFile(new URL('../seeds/host.sql', import.meta.url), 'utf8'));
-  console.log('Seeded organic demo hosts and paid/free activities (synthetic, repeatable).');
+  await client.query(await readFile(new URL('../seeds/bookings.sql', import.meta.url), 'utf8'));
+  console.log('Seeded organic demo hosts and paid/free and started/cancelled activities (synthetic, repeatable).');
 } finally { await client.end(); }
