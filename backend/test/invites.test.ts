@@ -501,5 +501,25 @@ test('labelled attribution seeds replay without changes and describe an organic 
   const events = (await owner.query("SELECT name,synthetic,context FROM analytics_events WHERE activity_id='b5000000-0000-4000-8000-000000000001'")).rows;
   assert.ok(events.every(event => event.synthetic && event.context.seedScenario === 'attribution-chain'));
   assert.equal(events.filter(event => event.name === 'spot_claimed').length, 3);
+  assert.equal(events.filter(event => event.name === 'invite_claim_attempted').length, 3);
   assert.ok(events.some(event => event.name === 'invite_opened' && event.context.displayedState === 'expired'));
+});
+
+test('invite signups carry experiment context and a cancelled activity link does not stamp acquisition', async () => {
+  const host = (await identity()).id;
+  const listing = await activity(host);
+  const { code, id } = (await share(listing.id, host)).data;
+  const guest = await identity({ inviteCode: code });
+  const created = (await owner.query("SELECT activity_id,plan_id,context FROM analytics_events WHERE actor_id=$1 AND name='identity_created'", [guest.id])).rows[0];
+  assert.deepEqual([created.activity_id, created.plan_id], [listing.id, listing.planId]);
+  assert.deepEqual(created.context.assignment, listing.assignment);
+  const organic = await identity();
+  const organicEvent = (await owner.query("SELECT activity_id,context FROM analytics_events WHERE actor_id=$1 AND name='identity_created'", [organic.id])).rows[0];
+  assert.equal(organicEvent.activity_id, null);
+  assert.equal('assignment' in organicEvent.context, false);
+  await owner.query("UPDATE activities SET status='cancelled' WHERE id=$1", [listing.id]);
+  const cancelled = await request('/identities', { displayName: 'Cancelled link', journeyId: randomUUID(), platform: 'mobile', inviteCode: code });
+  assert.equal(cancelled.status, 409);
+  assert.equal(cancelled.error.code, 'ACTIVITY_UNAVAILABLE');
+  assert.equal((await owner.query('SELECT count(*)::int AS n FROM users WHERE acquisition_invite_id=$1', [id])).rows[0].n, 1);
 });

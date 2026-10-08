@@ -87,7 +87,7 @@ function RenderedInvite({ preview, journeyId, delivery }: { preview: InvitePrevi
       <h3>Claim your seat in the app</h3>
       <p>Seats are confirmed only when you claim one in the Velio app. Open the app directly, or enter this code there:</p>
       <p className="invite-code">{groupedCode(preview.code)}</p>
-      <a className="button-link" href={appLink(preview.code)}>Open in the Velio app</a>
+      <a className="button-link" href={appLink(preview.code, journeyId)}>Open in the Velio app</a>
       <p className="hint">If the app does not open, install it, then choose “Enter a code”. The link cannot carry your code through a fresh install. Expires <time dateTime={preview.expiresAt}>{new Date(preview.expiresAt).toLocaleString()}</time>.</p>
     </div> : null}
   </section>;

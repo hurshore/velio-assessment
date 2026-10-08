@@ -5,7 +5,8 @@ import { bookingRoutes, recordInvalidBooking, type BookingDatabase } from './boo
 import { eventRoutes } from './events.js';
 import { activityRoutes } from './activities.js';
 import { inviteCreationRoutes, inviteRoutes } from './invites.js';
-import { DomainError, identityRoutes } from './domain.js';
+import { DomainError } from './domain.js';
+import { identityRoutes } from './identities.js';
 import { reportFailure, type FailureReporter } from './diagnostics.js';
 import { readinessTimeoutMs } from './readiness.js';
 

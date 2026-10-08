@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { assignmentJson, type InvitePolicy } from './experiments.js';
 import { bookingActor, bookSeat, recordInvalidBooking, type Actor, type BookingDatabase, type Intent } from './bookings.js';
 import type { FailureReporter } from './diagnostics.js';
-import { DomainError, exact, inviteCode, marker, object, platform, rows, text, uuid, type Database } from './domain.js';
+import { DomainError, exact, marker, object, platform, rows, text, uuid, type Database } from './domain.js';
 import { absoluteTime } from './activities.js';
 
 const alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
@@ -12,10 +12,21 @@ function generateCode(): string {
   return [...randomBytes(12)].map(byte => alphabet[byte % 32]).join('');
 }
 
-export type PreviewState = 'valid' | 'full' | 'expired' | 'started' | 'cancelled';
+const previewStates = ['valid', 'full', 'expired', 'started', 'cancelled'] as const;
+export type PreviewState = typeof previewStates[number];
 export interface ResolvedInvite {
   id: string; activityId: string; planId: string; inviterId: string; rail: 'public'; inviterGeneration: number; state: PreviewState;
   preview: Record<string, unknown>;
+}
+
+function invalidInvite(): never {
+  throw new DomainError(404, 'INVALID_INVITE', 'This invitation code is not valid. Check the code and try again.');
+}
+// Accepts the grouped/lowercase forms people type from a shared message.
+export function inviteCode(value: unknown): string {
+  const code = typeof value === 'string' ? value.replace(/[\s-]/g, '').toUpperCase() : '';
+  if (!/^[0-9A-HJKMNP-TV-Z]{12}$/.test(code)) invalidInvite();
+  return code;
 }
 
 // jsonb would otherwise render microsecond offsets; match the API's JSON Date form.
@@ -39,18 +50,26 @@ export async function resolveInvite(db: Database, value: unknown): Promise<Resol
         'startsAt',${isoTime('a.starts_at')},'timezone',a.timezone,'status',a.status,'capacity',a.capacity,'confirmedCount',a.confirmed_count,
         'remainingSeats',a.capacity-a.confirmed_count,'priceMinor',a.price_minor,'currency',a.currency,'version',a.version)) AS preview
     FROM invites i JOIN activities a ON a.id=i.activity_id JOIN users u ON u.id=i.inviter_id WHERE i.code=$1`, [code]);
-  if (!invite) throw new DomainError(404, 'INVALID_INVITE', 'This invitation code is not valid. Check the code and try again.');
+  if (!invite) invalidInvite();
   return invite;
 }
 
-const previewStates = ['valid', 'full', 'expired', 'started', 'cancelled'];
+// Only a live issued link stamps signup acquisition. A full link still does: signup is not
+// activation. Cancelled, started or expired links would credit an inviter for an unusable invite.
+export async function signupInviteId(db: Database, code: unknown): Promise<string> {
+  const invite = await resolveInvite(db, code);
+  if (invite.state === 'cancelled') throw new DomainError(409, 'ACTIVITY_UNAVAILABLE', 'This activity was cancelled. Continue without the invitation.');
+  if (invite.state === 'expired' || invite.state === 'started') throw new DomainError(410, 'INVITE_EXPIRED', 'This invitation has expired. Continue without it or ask for a new link.');
+  return invite.id;
+}
+
 // A rendered human open, reported by a client after the preview is visible. The displayed state
 // is what the guest saw; the server separately records the authoritative state at receipt.
 export async function recordInviteOpen(db: Database, body: Record<string, unknown>, actorHeader: string | undefined) {
   exact(body, ['id', 'schemaVersion', 'name', 'occurredAt', 'source', 'platform', 'actorId', 'journeyId', 'inviteCode', 'displayedState', 'synthetic', 'test']);
   const eventId = uuid(body.id, 'Event');
   const journeyId = uuid(body.journeyId, 'Journey');
-  if (typeof body.displayedState !== 'string' || !previewStates.includes(body.displayedState)) {
+  if (!previewStates.includes(body.displayedState as PreviewState)) {
     throw new DomainError(400, 'INVALID_REQUEST', 'Invite opens require the displayed preview state.');
   }
   if (body.actorId !== undefined && body.actorId !== actorHeader) throw new DomainError(400, 'INVALID_REQUEST', 'Event actor must match the selected demo identity.');

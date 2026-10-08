@@ -15,7 +15,7 @@ export interface Intent {
 export interface Actor { id: string; generation: number; synthetic: boolean; test: boolean }
 interface Availability { activityId: string; planId: string; capacity: number; confirmedCount: number; remainingSeats: number; version: number }
 export interface Booking { id: string; activityId: string; planId: string; userId: string; priceMinor: number; currency: string; confirmedAt: Date }
-export interface Redemption { id: string; inviteId: string; bookingId: string; rail: string; inviteeGeneration: number; createdAt: Date }
+export interface Redemption { id: string; inviteId: string; bookingId: string; rail: InviteClaim['rail']; inviteeGeneration: number; createdAt: Date }
 interface BookingResult { booking: Booking; availability: Availability; replayed: boolean; redemption?: Redemption | null }
 const bookingColumns = `id, activity_id AS "activityId", plan_id AS "planId", user_id AS "userId",
   price_minor AS "priceMinor", currency, confirmed_at AS "confirmedAt"`;

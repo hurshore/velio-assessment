@@ -40,7 +40,7 @@ test('a guest previews activity and inviter context, with the code and app-openi
   expect(screen.getByText(/Africa\/Lagos/)).toBeTruthy();
   expect(screen.getByText(/4 of 6 seats open/)).toBeTruthy();
   expect(screen.getByText(/5,000/)).toBeTruthy();
-  expect(screen.getByRole('link', { name: 'Open in the Velio app' }).getAttribute('href')).toBe('velio://invite/ABCD2345EFGH');
+  expect(screen.getByRole('link', { name: 'Open in the Velio app' }).getAttribute('href')).toMatch(/^velio:\/\/invite\/ABCD2345EFGH\?journey=/);
   expect(screen.getByText('ABCD-2345-EFGH')).toBeTruthy();
   expect(screen.queryByText(/API connected/)).toBeNull();
   await waitFor(() => expect(events).toHaveLength(1));
@@ -88,4 +88,10 @@ test('code entry rejects a malformed code locally and a connection failure offer
   expect((screen.getByLabelText('Invitation code') as HTMLInputElement).value).toBe('ABCD2345EFGH');
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
   expect(await screen.findByRole('heading', { name: 'Supper club' })).toBeTruthy();
+});
+
+test('the app-opening link carries the persistent journey so an app claim can join this open', async () => {
+  visit('/invite/ABCD2345EFGH', async () => ok(preview));
+  const link = await screen.findByRole('link', { name: 'Open in the Velio app' });
+  expect(link.getAttribute('href')).toBe(`velio://invite/ABCD2345EFGH?journey=${localStorage.getItem('velio.journey.v1')}`);
 });

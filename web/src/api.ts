@@ -163,8 +163,9 @@ export function normalizeInviteCode(value: string): string { return value.replac
 export function isInviteCode(value: string): boolean { return codePattern.test(normalizeInviteCode(value)); }
 export function groupedCode(code: string): string { return code.match(/.{1,4}/g)!.join('-'); }
 export function inviteLink(code: string): string { return `${window.location.origin}/invite/${code}`; }
-// Documented installed-app route; the Flutter guest app registers this scheme.
-export function appLink(code: string): string { return `velio://invite/${code}`; }
+// Documented installed-app route; the Flutter guest app registers this scheme. The journey lets
+// an app claim continue this browser's guest journey instead of starting an unlinked one.
+export function appLink(code: string, journeyId: string): string { return `velio://invite/${code}?journey=${journeyId}`; }
 
 export type PreviewState = 'valid' | 'full' | 'expired' | 'started' | 'cancelled';
 export interface InvitePreview {
