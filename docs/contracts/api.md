@@ -40,9 +40,9 @@ Both clients require an object envelope with a nonempty string request reference
 
 ## Mobile transport follow-up M7
 
-**Deferred from issue #1 hardening; reference: foundation/mobile-readiness-transport-cancellation (M7).** The current five-second timeout bounds the visible check but does not cancel the underlying http.Client.get. Same-frame checks are serialized and stale/disposed results cannot update visible state. A retry after timeout can still coexist with an abandoned transport request until completion or disposal; this limitation is deliberately retained here.
+**Completed at the issue #8 guest boundary; reference: foundation/mobile-readiness-transport-cancellation (M7).** The original five-second timeout bounded the visible check without cancelling the underlying http.Client.get. Issue #8 replaces it with an abortable request, completed on timeout/disposal. Same-frame checks are serialized and stale/disposed results cannot update visible state. Guest traffic also aborts on timeout/disposal and leaves caller-owned clients open. The pending claim key is persisted before transport.
 
-At the mobile guest-flow implementation boundary (PLANS.md §3.3), choose a supported request-cancellation mechanism or per-attempt owned transport, retain the pending claim's idempotency key, and test actual socket termination on timeout/dispose plus repeated timeout/retry cycles. Do not close a caller-owned injected client. Acceptance: each abandoned readiness request releases its transport resources, no late completion changes current UI, and booking recovery remains safe. No transport redesign or booking work is included in this hardening commit.
+The original follow-up required supported cancellation at the guest boundary, preserved claim idempotency, actual socket termination checks and caller-owned client preservation. Issue #8 shares `BoundedHttp` between readiness and guest requests, aborts on timeout/disposal, and covers repeated timeouts/disposal with a real TCP peer. Pending claims retain actor/code keys for recovery. See [mobile setup](../../mobile/README.md) and [verification](../verification/flutter-public-invites.md).
 
 ## Host activity slice (#2)
 

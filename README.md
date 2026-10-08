@@ -1,6 +1,6 @@
 # Velio assessment
 
-Runnable Express/TypeScript API, React/TypeScript/Vite host/booker web client, and Flutter guest skeleton. [PLANS.md](PLANS.md) is the product and technical specification. The web supports persistent organic demo identities, activity creation/discovery/details, committed seat booking/recovery, durable rendered-view events, public share links with a responsive guest preview, and attributed invite claims through the shared booking API. Live availability, committed participants, delivery recovery and operational delivery metrics are implemented. Specific-contact vouches, the Flutter guest claim and product metrics remain subsequent tickets.
+Runnable Express/TypeScript API, React/TypeScript/Vite host/booker web client, and Flutter public-invitation guest client. [PLANS.md](PLANS.md) is the product and technical specification. The web supports persistent organic demo identities, activity creation/discovery/details, committed seat booking/recovery, durable rendered-view events, public share links with a responsive guest preview, and attributed invite claims through the shared booking API. Live availability, committed participants, delivery recovery and operational delivery metrics are implemented. Flutter supports installed-app links/code entry, preview before identity, public claims, persistent request/event recovery and confirmed-success haptics. Specific-contact vouches, mobile live/offline recovery and product metrics remain subsequent tickets.
 
 ## Toolchains
 
@@ -49,7 +49,7 @@ flutter run -d <device-id> --dart-define=API_BASE_URL=http://127.0.0.1:3000
 
 Or `npm run mobile:run -- -d <device-id>`: the root helper reads `.env`, derives the URL from `PORT`, and honors an explicit `API_BASE_URL`. Direct `flutter run` has no access to root `.env`, so supply `--dart-define` when using a nondefault port/target. The default is `http://127.0.0.1:3000` for iOS simulator/macOS. Android emulator uses `--dart-define=API_BASE_URL=http://10.0.2.2:3000`. A physical phone uses `http://<Mac-LAN-IP>:3000` on the same network; allow inbound API traffic in the host firewall and grant iOS local-network access. `HOST=0.0.0.0` explicitly enables API LAN access. New setup files and both servers default to loopback; existing `.env` settings are preserved. Loopback on a phone refers to the phone itself.
 
-Android cleartext HTTP and iOS local networking exceptions are limited to Debug configurations. Use HTTPS for release mobile targets. macOS includes outbound network entitlement. Physical iOS devices require your own signing team; no developer team is embedded in the project. The screen calls readiness on launch and on retry and displays the server request reference. No emulator networking assumption substitutes for an actual request; [verification evidence](docs/verification/foundation.md) records tested targets and limits.
+Android cleartext HTTP and iOS local networking exceptions are limited to Debug configurations. Use HTTPS for release mobile targets. macOS includes outbound network entitlement. Physical iOS devices require your own signing team; no developer team is embedded in the project. The guest app starts at code entry and displays safe request references on API errors. Its retained diagnostics screen is exercised by the readiness integration test. No emulator networking assumption substitutes for an actual request; [verification evidence](docs/verification/foundation.md) records tested targets and limits.
 
 ## Local versus LAN development
 
@@ -67,11 +67,11 @@ For a physical phone, opt in with `HOST=0.0.0.0 npm run dev` and `API_BASE_URL=h
 
 - `backend/`: Express API and SQL migration runner, node-postgres and Redis connections.
 - `web/`: React/Vite demo identity and host activity flow, npm workspace.
-- `mobile/`: Flutter guest skeleton, its own Dart dependencies/commands.
+- `mobile/`: Flutter public-invite guest journey, its own Dart dependencies/commands.
 - `docker-compose.yml`: PostgreSQL/Redis with health checks.
 - [Initial shared contracts](docs/contracts/api.md): envelopes/errors, identity/idempotency, rail/ancestry, journey/events, versioned availability. Health, organic identity, activity discovery/creation/details and narrow rendered-view ingestion routes exist now.
 
-Process health remains 200 during dependency outages; readiness returns a safe retryable 503. Probes are bounded and API responses do not disclose dependency credentials. Vouches, mobile cache/haptics, product metrics, and `OWNERSHIP.md` remain in subsequent plan tickets. Booking evidence is in [the booking report](docs/verification/seat-booking.md). Host activity evidence is in [the slice verification report](docs/verification/host-activities.md).
+Process health remains 200 during dependency outages; readiness returns a safe retryable 503. Probes are bounded and API responses do not disclose dependency credentials. Vouches, mobile cache/live recovery, product metrics, and `OWNERSHIP.md` remain in subsequent plan tickets. Booking evidence is in [the booking report](docs/verification/seat-booking.md). Host activity evidence is in [the slice verification report](docs/verification/host-activities.md).
 
 ## Create and inspect an activity
 
@@ -142,3 +142,10 @@ Opening `/invite/<code>` shows a responsive guest preview: inviter display name 
 The API claim (`POST /api/invites/:code/claims`) runs inside the shared booking transaction, after the activity lock: existing bookings are recovered first, then cancellation/start, self-invite, expiry and capacity are checked, in that order. Booking, count/version, redemption edge, success events, idempotency result and outbox commit together. New identities created with `inviteCode` inherit generation, parent, root and rail from the invite's snapshot; returning users keep their signup history and gain only a redemption edge. `npm run seed` adds a labelled organic → invited → invited chain with a returning claimant (`Supper club · demo seed`); its fixed historical links are expired fixtures, so create fresh links to share.
 
 Focused verification: `node --env-file=.env --import tsx --test backend/test/invites.test.ts` and `npm run test --workspace web -- src/PublicShare.test.tsx src/GuestInvite.test.tsx`. Evidence: [the public invitation report](docs/verification/public-invites.md). Contract: [public invitations](docs/contracts/api.md#public-invitations-issue-5).
+
+
+## Flutter public invitation journey
+
+Run the app, enter the shared code or open `velio://invite/<code>?journey=<UUID>`, and inspect the public invitation before choosing a demo identity. Claim one seat and wait for the committed plan confirmation. The app stores identity, journey, event IDs and actor/code request keys across restart. An uncertain response checks existing membership and retains the key for retry; full/expired previews still allow an existing identity to recover confirmation. Haptics follow confirmed success only. Details show fetched availability; live subscriptions and the offline details cache belong to #9.
+
+[Mobile setup, link commands and recovery](mobile/README.md). [Simulator and event evidence](docs/verification/flutter-public-invites.md). With the API and an iOS simulator running, `node scripts/check-mobile-guest.mjs <simulator-id>` exercises the native route and real claim/recovery. Accept iOS's app-opening prompt when shown.

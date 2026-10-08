@@ -8,7 +8,7 @@ void main() {
   testWidgets('status screen completes a real API readiness roundtrip', (
     tester,
   ) async {
-    app.main();
+    await tester.pumpWidget(const app.VelioApp(showConnection: true));
     await tester.pumpAndSettle(const Duration(milliseconds: 100));
     final deadline = DateTime.now().add(const Duration(seconds: 10));
     while (find.text('API connected').evaluate().isEmpty &&
