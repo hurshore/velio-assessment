@@ -1,3 +1,4 @@
+import { bookingRoutes, recordInvalidBooking, type BookingDatabase } from './bookings.js';
 import { eventRoutes } from './events.js';
 import { activityRoutes } from './activities.js';
 import { DomainError, identityRoutes } from './domain.js';
@@ -7,7 +8,7 @@ import { readinessTimeoutMs } from './readiness.js';
 import express, { type ErrorRequestHandler } from 'express';
 
 export interface Dependencies {
-  postgres: { query: (sql: string, parameters?: unknown[]) => Promise<unknown> };
+  postgres: BookingDatabase;
   redis: { ping: () => Promise<string> };
 }
 
@@ -69,12 +70,13 @@ export function createApp(dependencies: Dependencies, webOrigin: string, logFail
     response.json({ data: { status: 'ok', dependencies: { postgres: 'ok', redis: 'ok' } }, requestId: response.locals.requestId });
   });
   app.use('/api/events', eventRoutes(dependencies.postgres));
+  app.use('/api/activities', bookingRoutes(dependencies.postgres, logFailure));
   app.use('/api/activities', activityRoutes(dependencies.postgres));
   app.use('/api/identities', identityRoutes(dependencies.postgres));
   app.use((_request, response) => {
     response.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found.', retryable: false }, requestId: response.locals.requestId });
   });
-  const handleError: ErrorRequestHandler = (error, _request, response, _next) => {
+  const handleError: ErrorRequestHandler = async (error, request, response, _next) => {
     if (error instanceof DomainError) {
       response.status(error.status).json({ error: { code: error.code, message: error.message, retryable: false }, requestId: response.locals.requestId });
       return;
@@ -82,6 +84,13 @@ export function createApp(dependencies: Dependencies, webOrigin: string, logFail
     logFailure({ component: 'http', requestId: response.locals.requestId }, error);
     const invalidJson = error instanceof SyntaxError && 'type' in error && error.type === 'entity.parse.failed';
     const oversized = error?.type === 'entity.too.large';
+    const bookingPath = request.path.match(/^\/api\/activities\/([^/]+)\/bookings\/?$/);
+    if ((invalidJson || oversized) && request.method === 'POST' && bookingPath) {
+      let activityId: string | undefined;
+      try { activityId = decodeURIComponent(bookingPath[1]!); } catch { /* Invalid path encoding has no entity context. */ }
+      await recordInvalidBooking(dependencies.postgres, { requestId: response.locals.requestId, actorId: request.get('X-Demo-Actor-Id'), activityId,
+        code: invalidJson ? 'INVALID_JSON' : 'PAYLOAD_TOO_LARGE' }, logFailure);
+    }
     response.status(invalidJson ? 400 : oversized ? 413 : 500).json({
       error: {
         code: invalidJson ? 'INVALID_JSON' : oversized ? 'PAYLOAD_TOO_LARGE' : 'INTERNAL_ERROR',
