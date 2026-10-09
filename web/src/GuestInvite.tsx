@@ -89,9 +89,12 @@ function RenderedInvite({ preview, journeyId, delivery }: { preview: InvitePrevi
   useEffect(() => { delivery.capture(event, `${activity.title} invitation`); }, [delivery, event, activity.title]);
   const time = new Intl.DateTimeFormat(undefined, { dateStyle: 'full', timeStyle: 'short', timeZone: activity.timezone }).format(new Date(activity.startsAt));
   return <section aria-labelledby="invite-heading" className="guest-invite">
-    <p className="eyebrow">{inviter.displayName} invited you{inviter.role === 'host' ? ' to their activity' : ''}</p>
+    <p className="eyebrow">{inviter.displayName} {preview.rail === 'vouch' ? 'vouched for you' : 'invited you'}{inviter.role === 'host' ? ' to their activity' : ''}</p>
     <h2 id="invite-heading" tabIndex={-1}>{activity.title}</h2>
-    <p className="hint">This is a public link: anyone who has it can view and claim an open seat. It is not a personal vouch, and it does not hold a seat for you.</p>
+    {preview.rail === 'vouch' ? <>
+      <p className="hint">This is a personal vouch for one specific contact. Only that person can claim a seat with it: the app matches it to the contact saved on your demo identity. It does not hold a seat for you.</p>
+      <p className="hint">Contacts are not verified in this demo, so matching simulates a trusted introduction rather than proving who you are.</p>
+    </> : <p className="hint">This is a public link: anyone who has it can view and claim an open seat. It is not a personal vouch, and it does not hold a seat for you.</p>}
     {preview.state !== 'valid' ? <p role="alert">{stateCopy[preview.state]}</p> : null}
     <p className="description">{activity.description}</p>
     <dl>

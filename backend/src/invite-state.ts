@@ -18,3 +18,8 @@ export function rejectUnavailableActivity(state: PreviewState, action: string): 
   if (state === 'cancelled') throw new DomainError(409, 'ACTIVITY_UNAVAILABLE', `This activity was cancelled, so ${action}.`);
   if (state === 'started') throw new DomainError(409, 'ACTIVITY_STARTED', `This activity has already started, so ${action}.`);
 }
+
+// Never names the intended contact: the claimant learns only that their identity does not match it.
+export function rejectRecipient(action: string): never {
+  throw new DomainError(403, 'RECIPIENT_MISMATCH', `This vouch was created for a specific contact, and the selected identity's contact does not match it, so ${action}.`);
+}

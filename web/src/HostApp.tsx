@@ -30,11 +30,13 @@ export function HostApp() {
   async function createIdentity(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
-    const displayName = String(new FormData(form).get('displayName') ?? '').trim();
+    const fields = new FormData(form);
+    const displayName = String(fields.get('displayName') ?? '').trim();
+    const contact = String(fields.get('contact') ?? '').trim();
     if (!displayName || displayName.length > 100) { setError('Display name must contain 1–100 characters.'); return; }
     setCreating(true); setError('');
     try {
-      const user = parseIdentity(await api('/identities', { body: { displayName, journeyId, platform: 'web' } }));
+      const user = parseIdentity(await api('/identities', { body: { displayName, journeyId, platform: 'web', ...(contact ? { contact } : {}) } }));
       setIdentities(previous => [...previous, user]); select(user.id); form.reset();
     } catch (error) { setError(message(error)); }
     finally { setCreating(false); }
@@ -52,6 +54,8 @@ export function HostApp() {
       </select></label>
       <form onSubmit={createIdentity}>
         <label>Display name<input name="displayName" required maxLength={100} autoComplete="nickname" /></label>
+        <label>Contact for vouches (optional email or phone)<input name="contact" maxLength={254} autoComplete="off" /></label>
+        <p className="hint">A vouch can be claimed only by the identity whose contact matches it. Matching ignores letter case, spaces and punctuation but nothing else, so use the same format the inviter will enter (for example, with or without a country code). This contact is not verified, is set once and is never shown to other people.</p>
         <button disabled={creating || loading || hosting}>{creating ? 'Creating identity…' : 'Create demo identity'}</button>
       </form>
     </section>

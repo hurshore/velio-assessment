@@ -148,8 +148,11 @@ export function parseBookingState(value: unknown, activity: Activity, actorId: s
   return data as unknown as BookingState;
 }
 
+export type Rail = 'public' | 'vouch';
 export interface CreatedInvite {
-  id: string; code: string; rail: 'public'; inviterRole: 'host' | 'booker'; activityId: string; planId: string; createdAt: string; expiresAt: string;
+  id: string; code: string; rail: Rail; inviterRole: 'host' | 'booker'; activityId: string; planId: string; createdAt: string; expiresAt: string;
+  // Returned only to the inviter who entered it, and only for a vouch.
+  recipientContact?: string;
   availability: { capacity: number; confirmedCount: number; remainingSeats: number; version: number };
 }
 const codePattern = /^[0-9A-HJKMNP-TV-Z]{12}$/;
@@ -160,9 +163,10 @@ function seatCounts(data: Record<string, unknown>): boolean {
     Number(data.capacity) >= 1 && Number(data.confirmedCount) >= 0 && Number(data.remainingSeats) >= 0 && Number(data.version) >= 1 &&
     Number(data.confirmedCount) + Number(data.remainingSeats) === data.capacity;
 }
-export function parseCreatedInvite(value: unknown, activity: Pick<Activity, 'id' | 'planId'>): CreatedInvite {
+export function parseCreatedInvite(value: unknown, activity: Pick<Activity, 'id' | 'planId'>, rail: Rail): CreatedInvite {
   const data = record(value);
-  if (typeof data.id !== 'string' || typeof data.code !== 'string' || !codePattern.test(data.code) || data.rail !== 'public' ||
+  if (typeof data.id !== 'string' || typeof data.code !== 'string' || !codePattern.test(data.code) || data.rail !== rail ||
+    (rail === 'vouch' ? typeof data.recipientContact !== 'string' || !data.recipientContact : data.recipientContact !== undefined) ||
     (data.inviterRole !== 'host' && data.inviterRole !== 'booker') || data.activityId !== activity.id || data.planId !== activity.planId ||
     !timestamp(data.createdAt) || !timestamp(data.expiresAt) || Date.parse(data.expiresAt) <= Date.parse(data.createdAt) ||
     !isRecord(data.availability) || !seatCounts(data.availability)) {
@@ -187,7 +191,7 @@ export interface PreviewActivity {
   capacity: number; confirmedCount: number; remainingSeats: number; priceMinor: number; currency: string; version: number;
 }
 export interface InvitePreview {
-  code: string; rail: 'public'; trust: 'public'; state: PreviewState; createdAt: string; expiresAt: string;
+  code: string; rail: Rail; trust: Rail; state: PreviewState; createdAt: string; expiresAt: string;
   inviter: { displayName: string; role: 'host' | 'booker' }; activity: PreviewActivity;
 }
 function parsePreviewActivity(value: unknown): PreviewActivity {
@@ -201,7 +205,7 @@ function parsePreviewActivity(value: unknown): PreviewActivity {
 export function parseInvitePreview(value: unknown): InvitePreview {
   const data = record(value);
   const inviter = record(data.inviter);
-  if (typeof data.code !== 'string' || !codePattern.test(data.code) || data.rail !== 'public' || data.trust !== 'public' ||
+  if (typeof data.code !== 'string' || !codePattern.test(data.code) || (data.rail !== 'public' && data.rail !== 'vouch') || data.trust !== data.rail ||
     !previewStates.includes(data.state as PreviewState) || !timestamp(data.createdAt) || !timestamp(data.expiresAt) ||
     typeof inviter.displayName !== 'string' || !inviter.displayName.trim() || (inviter.role !== 'host' && inviter.role !== 'booker')) {
     throw new Error(unexpectedInvite);

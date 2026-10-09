@@ -3,8 +3,8 @@ import { Router } from 'express';
 import { assignmentJson, type InvitePolicy } from './experiments.js';
 import { bookingActor, bookSeat, recordInvalidBooking, requestPlatform, type Actor, type BookingDatabase, type Intent, type LiveHooks } from './bookings.js';
 import type { FailureReporter } from './diagnostics.js';
-import { DomainError, exact, marker, object, platform, rows, text, uuid, type Database } from './domain.js';
-import { inviteStateSql, previewStates, rejectUnavailableActivity, type PreviewState } from './invite-state.js';
+import { contact, DomainError, exact, marker, object, platform, rows, text, uuid, type Database } from './domain.js';
+import { inviteStateSql, previewStates, rejectRecipient, rejectUnavailableActivity, type PreviewState } from './invite-state.js';
 import { absoluteTime } from './activities.js';
 
 const alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
@@ -14,7 +14,9 @@ function generateCode(): string {
 }
 
 export interface ResolvedInvite {
-  id: string; activityId: string; planId: string; inviterId: string; rail: 'public'; inviterGeneration: number; state: PreviewState;
+  id: string; activityId: string; planId: string; inviterId: string; rail: 'public' | 'vouch'; inviterGeneration: number; state: PreviewState;
+  // Server-side only: matched against the claimant and never placed in the public preview.
+  recipientContact: string | null;
   preview: Record<string, unknown>;
 }
 
@@ -40,7 +42,7 @@ const observedState = `CROSS JOIN LATERAL (SELECT clock_timestamp() AS observed_
 export async function resolveInvite(db: Database, value: unknown): Promise<ResolvedInvite> {
   const code = inviteCode(value);
   const [invite] = await rows<ResolvedInvite>(db, `SELECT i.id, i.activity_id AS "activityId", i.plan_id AS "planId", i.inviter_id AS "inviterId",
-    i.rail, i.inviter_generation AS "inviterGeneration", s.state,
+    i.rail, i.inviter_generation AS "inviterGeneration", i.recipient_contact AS "recipientContact", s.state,
     jsonb_build_object('code',i.code,'rail',i.rail,'trust',i.rail,'state',s.state,'createdAt',${isoTime('i.created_at')},'expiresAt',${isoTime('i.expires_at')},
       'inviter',jsonb_build_object('displayName',u.display_name,'role',i.inviter_role),
       'activity',jsonb_build_object('id',a.id,'planId',i.plan_id,'title',a.title,'description',a.description,'meetingLocation',a.meeting_location,
@@ -53,9 +55,11 @@ export async function resolveInvite(db: Database, value: unknown): Promise<Resol
 
 // Only a live issued link stamps signup acquisition. A full link still does: signup is not
 // activation. Unusable links are rejected with the same codes a claim would return.
-export async function signupInviteId(db: Database, code: unknown): Promise<string> {
+export async function signupInviteId(db: Database, code: unknown, signupContact: string | null): Promise<string> {
   const invite = await resolveInvite(db, code);
   rejectUnavailableActivity(invite.state, 'continue without the invitation');
+  // A vouch credits acquisition only to its intended contact, matched like a claim.
+  if (invite.rail === 'vouch' && signupContact !== invite.recipientContact) rejectRecipient('continue without the invitation');
   if (invite.state === 'expired') throw new DomainError(410, 'INVITE_EXPIRED', 'This invitation has expired. Continue without it or ask for a new link.');
   return invite.id;
 }
@@ -139,11 +143,17 @@ export function inviteCreationRoutes(db: Database, policy: InvitePolicy) {
     const inviter = actorId(request.get('X-Demo-Actor-Id'), 'sharing');
     const activityId = uuid(request.params.id, 'Activity').toLowerCase();
     const body = object(request.body);
-    exact(body, ['rail', 'platform', 'journeyId']);
-    if (body.rail !== 'public') throw new DomainError(400, 'INVALID_REQUEST', 'Only public share links can be created.');
+    exact(body, ['rail', 'recipientContact', 'platform', 'journeyId']);
+    if (body.rail !== 'public' && body.rail !== 'vouch') throw new DomainError(400, 'INVALID_REQUEST', 'Rail must be vouch or public.');
+    const rail = body.rail;
+    if (rail === 'public' && body.recipientContact !== undefined) throw new DomainError(400, 'INVALID_REQUEST', 'Public links have no intended recipient.');
+    const recipient = rail === 'vouch' ? contact(body.recipientContact, 'Recipient contact') : null;
     const source = platform(body.platform);
     const journeyId = body.journeyId === undefined ? null : uuid(body.journeyId, 'Journey');
     await policy.requireCreation(activityId, inviter);
+    if (recipient && (await rows(db, 'SELECT 1 FROM users WHERE id=$1 AND contact=$2', [inviter, recipient])).length) {
+      throw new DomainError(403, 'SELF_INVITE', 'You cannot vouch for your own contact.');
+    }
     // Eligibility and the insert share one statement and one observation time, so an activity
     // starting or filling mid-request yields its domain error rather than a constraint failure.
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -155,8 +165,8 @@ export function inviteCreationRoutes(db: Database, policy: InvitePolicy) {
         SELECT t.*, CASE WHEN t.status='cancelled' THEN 'cancelled' WHEN t.status<>'scheduled' OR t.starts_at <= t.created_at THEN 'started'
           WHEN t.confirmed_count >= t.capacity THEN 'full' ELSE 'valid' END AS state FROM target t
       ), invite AS (
-        INSERT INTO invites (id,code,activity_id,plan_id,inviter_id,inviter_role,rail,inviter_generation,inviter_parent_id,inviter_root_id,invitee_generation,created_at,expires_at)
-        SELECT $1,$2,t.id,t.plan_id,u.id,CASE WHEN t.host_id=u.id THEN 'host' ELSE 'booker' END,'public',
+        INSERT INTO invites (id,code,activity_id,plan_id,inviter_id,inviter_role,rail,recipient_contact,inviter_generation,inviter_parent_id,inviter_root_id,invitee_generation,created_at,expires_at)
+        SELECT $1,$2,t.id,t.plan_id,u.id,CASE WHEN t.host_id=u.id THEN 'host' ELSE 'booker' END,$8,$9,
           u.generation,u.acquisition_parent_id,u.acquisition_root_id,u.generation+1,t.created_at,LEAST(t.created_at + interval '24 hours', t.starts_at)
         FROM classified t JOIN users u ON u.id=$3 WHERE t.state='valid' AND t.plan_id IS NOT NULL
         ON CONFLICT (code) DO NOTHING RETURNING *
@@ -169,11 +179,12 @@ export function inviteCreationRoutes(db: Database, policy: InvitePolicy) {
           u.synthetic OR t.host_synthetic, u.test OR t.host_test
         FROM invite i JOIN users u ON u.id=i.inviter_id CROSS JOIN target t
       ) SELECT t.state, t.plan_id IS NOT NULL AS planned,
-        (SELECT jsonb_build_object('id',i.id,'code',i.code,'rail',i.rail,'inviterRole',i.inviter_role,'activityId',i.activity_id,'planId',i.plan_id,
+        -- Only the inviter who typed the contact sees it again; events and previews never carry it.
+        (SELECT jsonb_strip_nulls(jsonb_build_object('recipientContact',i.recipient_contact)) || jsonb_build_object('id',i.id,'code',i.code,'rail',i.rail,'inviterRole',i.inviter_role,'activityId',i.activity_id,'planId',i.plan_id,
           'createdAt',${isoTime('i.created_at')},'expiresAt',${isoTime('i.expires_at')},
           'availability',jsonb_build_object('capacity',t.capacity,'confirmedCount',t.confirmed_count,'remainingSeats',t.capacity-t.confirmed_count,'version',t.version))
           FROM invite i) AS invite
-      FROM classified t`, [randomUUID(), generateCode(), inviter, activityId, randomUUID(), source, journeyId]);
+      FROM classified t`, [randomUUID(), generateCode(), inviter, activityId, randomUUID(), source, journeyId, rail, recipient]);
       if (!outcome) throw new DomainError(404, 'NOT_FOUND', 'Activity was not found.');
       if (outcome.invite) {
         response.status(201).json({ data: outcome.invite, requestId: response.locals.requestId });

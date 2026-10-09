@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useLiveActivity } from './useLiveActivity';
 import { SeatBooking } from './SeatBooking';
 import { PublicShare } from './PublicShare';
+import { useVouch, VouchShare, type Vouch } from './VouchShare';
 import type { RenderedViewEvent, ViewDelivery } from './view-delivery';
 import { api, message, parseActivityDetail, type ActivityDetail, type CreatedInvite } from './api';
 
@@ -15,9 +16,10 @@ export function ActivityDetails({ id, actorId, journeyId, close, delivery }: { d
   const [attempt, setAttempt] = useState(0);
   const [loading, setLoading] = useState(true);
   const [viewVersion, setViewVersion] = useState(0);
-  // Held here, above the remounting view, and scoped to the actor that created it.
+  // Held here, above the remounting view, and scoped to the actor that created them.
   const [shared, setShared] = useState<{ actorId: string; invite: CreatedInvite } | null>(null);
-  const sharing = { invite: shared?.actorId === actorId ? shared.invite : null, onCreated: (invite: CreatedInvite) => setShared({ actorId, invite }) };
+  const vouch = useVouch(actorId, journeyId);
+  const sharing: Sharing = { invite: shared?.actorId === actorId ? shared.invite : null, onCreated: invite => setShared({ actorId, invite }), vouch };
   const pending = useRef<AbortController | null>(null);
   const loadDetails = useCallback(async (renewView: boolean) => {
     pending.current?.abort();
@@ -58,7 +60,7 @@ export function ActivityDetails({ id, actorId, journeyId, close, delivery }: { d
     {detail && detail.id === id && detailActor === actorId ? <RenderedActivity sharing={sharing} stale={live.stale} refresh={() => void loadDetails(false)} delivery={delivery} key={`${detail.id}:${actorId}:${viewVersion}`} activity={detail} actorId={actorId} journeyId={journeyId} /> : null}
   </section>;
 }
-type Sharing = { invite: CreatedInvite | null; onCreated: (invite: CreatedInvite) => void };
+type Sharing = { invite: CreatedInvite | null; onCreated: (invite: CreatedInvite) => void; vouch: Vouch };
 function RenderedActivity({ activity, actorId, journeyId, delivery, refresh, stale, sharing }: { stale: boolean; delivery: ViewDelivery; activity: ActivityDetail; actorId: string; journeyId: string; refresh: () => void; sharing: Sharing }) {
   const [event] = useState<RenderedViewEvent>(() => ({ id: crypto.randomUUID(), schemaVersion: 1, name: 'activity_viewed', source: 'client', platform: 'web',
     occurredAt: new Date().toISOString(), actorId: actorId || undefined, journeyId, activityId: activity.id, planId: activity.planId }));
@@ -111,6 +113,9 @@ function InvitationExperience({ activity, actorId, journeyId, delivery, sharing 
     <h3 id={headingId}>Invitations</h3>
     <p>{invitationCopy(reason)}</p>
     <p className="hint">Invitations do not reserve seats. Only a confirmed booking holds a place.</p>
-    {allowed && actorId ? <PublicShare activity={activity} actorId={actorId} journeyId={journeyId} invite={sharing.invite} onCreated={sharing.onCreated} /> : null}
+    {allowed && actorId ? <>
+      <VouchShare activity={activity} vouch={sharing.vouch} />
+      <PublicShare activity={activity} actorId={actorId} journeyId={journeyId} invite={sharing.invite} onCreated={sharing.onCreated} />
+    </> : null}
   </section>;
 }

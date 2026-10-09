@@ -41,3 +41,18 @@ corrections and users' ancestry columns from any role. Fixes append to
 `attribution_corrections` with migration credentials. `invites_rail_supported` allows only
 `public` until the vouch ticket adds recipient binding. `seeds/invites.sql` adds a labelled
 attribution chain whose bookings set counts directly, without outbox rows.
+
+`010` adds the vouch rail. Users gain an optional demo `contact` (lowercase email or digits-only
+phone, unique when present, set at signup only), and invites gain `recipient_contact`, required
+exactly for `vouch`; `invites_rail_supported` is dropped. A partial unique index allows one
+redemption per vouch, and `require_vouch_recipient` triggers refuse vouch redemptions and
+vouch-acquired signups whose contact differs from the invite's intended contact. The contact is
+unverified, so this simulates recipient matching rather than proving identity.
+
+`011` replaces `is_demo_contact` with an explicit code-point exclusion list instead of
+locale-dependent `\s`. The excluded points are controls, spaces, Unicode space separators,
+zero-width and bidi formatting characters and the BOM. The API's `contact()` excludes the same
+points, so a contact it accepts cannot fail the check and surface as a 500. Existing rows are not
+revalidated. Like the other migrations, `010`/`011` add constraints and indexes in one transaction
+without `NOT VALID`/`CONCURRENTLY`. That is acceptable at demo scale; a populated production
+rollout would need staged validation, which is a follow-up.
