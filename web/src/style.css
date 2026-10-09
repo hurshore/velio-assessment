@@ -6,6 +6,7 @@
   --surface:#fff;
   --muted:#606065;
   --lime:#a3e75b;
+  --brand-dot:#89cf43;
   --purple:#8151d7;
   --lavender:#efe9fb;
   --line:#dedee2
@@ -78,9 +79,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 }
 
 .brand span {
-  color:#89cf43;
-  font-size:19px;
-  margin-left:2px
+  color:var(--brand-dot)
 }
 
 .app-header {

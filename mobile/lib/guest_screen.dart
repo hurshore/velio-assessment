@@ -817,8 +817,16 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: const Text(
-        'velio.',
+      title: const Text.rich(
+        TextSpan(
+          text: 'velio',
+          children: [
+            TextSpan(
+              text: '.',
+              style: TextStyle(color: VelioTheme.brandDot),
+            ),
+          ],
+        ),
         style: TextStyle(
           fontWeight: FontWeight.w800,
           fontSize: 28,
@@ -970,14 +978,17 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
           ),
         ),
         const Text('You’re on the list. Make time for good company.'),
-        ExpansionTile(
-          title: const Text('Booking reference'),
-          children: [
-            SelectableText(
-              'Plan: ${preview.planId}\nBooking: ${confirmation.booking!['id']}',
-            ),
-            Text('Confirmed price: ${_price(confirmation.booking!)}'),
-          ],
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: ExpansionTile(
+            title: const Text('Booking reference'),
+            children: [
+              SelectableText(
+                'Plan: ${preview.planId}\nBooking: ${confirmation.booking!['id']}',
+              ),
+              Text('Confirmed price: ${_price(confirmation.booking!)}'),
+            ],
+          ),
         ),
         if (confirmation.telemetryDegraded)
           const Text('Your seat is confirmed; server tracking is delayed.'),

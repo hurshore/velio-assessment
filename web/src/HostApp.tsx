@@ -49,7 +49,7 @@ export function HostApp() {
   }
   const actor = identities.find(user => user.id === actorId);
   return <>
-    <header className="app-header"><a href="/" className="brand" onClick={event => followRoute(event, '/')}>velio<span>●</span></a>
+    <header className="app-header"><a href="/" className="brand" onClick={event => followRoute(event, '/')}>velio<span>.</span></a>
       <nav aria-label="Main navigation"><a aria-current={path === '/' ? 'page' : undefined} href="/" onClick={event => followRoute(event, '/')}>Explore</a><a aria-current={path === '/hosting' ? 'page' : undefined} href="/hosting" onClick={event => followRoute(event, '/hosting')}>Hosting</a></nav>
       <button aria-expanded={identityOpen} aria-controls="identity-panel" className="secondary identity-toggle" onClick={() => setIdentityOpen(value => !value)}>Using demo as {actor?.displayName ?? 'Visitor'}</button>
     </header>

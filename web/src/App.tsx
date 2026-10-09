@@ -23,7 +23,7 @@ const currentPath = () => window.location.pathname;
 export function App() {
   const guestCode = inviteCodeFromPath(useSyncExternalStore(subscribeToHistory, currentPath));
   if (guestCode !== null) return <main className="guest">
-    <a className="brand" href="/">velio<span>●</span></a><p className="eyebrow">YOU’RE INVITED</p>
+    <a className="brand" href="/">velio<span>.</span></a><p className="eyebrow">YOU’RE INVITED</p>
     <GuestInvite code={guestCode} />
   </main>;
   return <HostAndBooker />;

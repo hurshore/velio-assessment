@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 
 abstract final class VelioTheme {
   static const background = Color(0xfff3f3f4);
+  static const brandDot = Color(0xff89cf43);
+  static const disclosureBorder = RoundedRectangleBorder(
+    borderRadius: BorderRadius.all(Radius.circular(16)),
+    side: BorderSide(color: Color(0xffdedee2)),
+  );
   static const lime = Color(0xffa3e75b);
   static const purple = Color(0xff8151d7);
   static const lavender = Color(0xffefe9fb);
@@ -19,6 +24,14 @@ abstract final class VelioTheme {
       backgroundColor: background,
       surfaceTintColor: Colors.transparent,
       centerTitle: false,
+    ),
+    expansionTileTheme: const ExpansionTileThemeData(
+      backgroundColor: Colors.white,
+      collapsedBackgroundColor: Colors.white,
+      shape: disclosureBorder,
+      collapsedShape: disclosureBorder,
+      clipBehavior: Clip.antiAlias,
+      childrenPadding: EdgeInsets.fromLTRB(16, 0, 16, 16),
     ),
     textTheme: const TextTheme(
       headlineLarge: TextStyle(

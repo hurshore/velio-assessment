@@ -366,6 +366,8 @@ Final verification (#12), 9 October 2026: the live report and operational summar
 
 | 9 October 2026 | §3.1–3.5 establishes working host/booker/guest journeys and puts polish after recovery verification. | #27 refines the integrated prototype with navigable task screens, reference-inspired pale grey/white surfaces, lime actions, purple guidance, rounded cards and native guest continuity. Uses system sans-serif fallbacks and intentional abstract activity art; no invented photos or trust/community data. Currency-unit input converts via decimal strings at the currency’s supported precision. | The original stacked forms obscured the next action. Route/state owners retain delivery IDs, pending booking keys and actor/activity boundaries. Original timezone, booking, attribution, live ACK, holdout and offline rules remain authoritative. |
 
+| 9 October 2026 | #27 uses consistent semantic colors and rounded native surfaces. | Owner visual review refines the wordmark to a small period-sized mint dot on both platforms and adds a visible rounded outline to native disclosures in both collapsed and expanded states. | The larger web dot and black native dot diverged; the borderless booking reference looked unlike the surrounding controls. This is presentation only; booking recovery and disclosure contents remain unchanged. |
+
 ## Reference checks
 
 - [Assessment brief](https://app.notion.com/p/velioapp/Velio-Engineering-Assessment-3f26935bd88981dbaaceea8a2f28eb7b): requirements are based on the supplied document, not unverified assumptions about Velio's codebase.
