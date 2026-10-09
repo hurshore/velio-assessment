@@ -360,6 +360,8 @@ Implementation entries retain the original planned decision and explain changes 
 
 | 9 October 2026 | #9 refreshes versioned membership and online invitation eligibility while preserving atomic guest recovery. | PR #23 review corrections track participant version independently of HTTP preview version, publish candidate identity state only after its atomic save, and add database-derived `activity.inviteState` to invite-aware live snapshots. Unchanged cache data is not rewritten; meaningful identity/claim/recovery changes still flush immediately. | HTTP freshness cannot prove cached participant freshness, and device time cannot decide server eligibility. Failed/rejected candidates preserve the original actor; local recovery-write failures retain intent/key and report confirmed bookings accurately. The shared live protocol remains additive for legacy subscribers. |
 
+Final verification (#12), 9 October 2026: the live report and operational summary now expose the existing §4.2 threshold explicitly as an analysis status per timing group. The count uses distinct booking updates with subscribers (including misses), excluding zero-demand observations; exact and proxy samples are never combined. This closes a reporting omission without changing the two-second target, coverage rules, production deadlines, or original reasoning above. Native handoff and local workload evidence is recorded in `docs/verification/final-handoff.md`; attendance remains unmeasured.
+
 ## Reference checks
 
 - [Assessment brief](https://app.notion.com/p/velioapp/Velio-Engineering-Assessment-3f26935bd88981dbaaceea8a2f28eb7b): requirements are based on the supplied document, not unverified assumptions about Velio's codebase.

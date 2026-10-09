@@ -4,7 +4,7 @@
 
 ## Diagnose
 
-Validate the 11% using PLANS.md §4.2: deduplicated (invitation, guest journey) opens, mature claim windows (the earlier of 24 hours and activity start), correct attribution, and exclusions for recovery, bots and synthetic traffic. Compare headline conversion, including unavailable invitations, with eligible-open conversion. Split by availability, platform, invitation type, new/returning and funnel stage; anonymous at first open does not necessarily mean new. Observe mobile journeys and ask guests who stopped why. Compare invitation types on volumes and participation alongside rates.
+Validate the 11% using PLANS.md §4.2: deduplicated (invitation, guest journey) opens, mature claim windows (the earlier of 24 hours and activity start), server attribution, recovery/bot/test exclusions, and effective opens clamped to creation/receipt with five-minute claim skew tolerance. Compare headline conversion, including unavailable invitations, with eligible-open conversion. Split by availability, platform, invitation type, new/returning and funnel stage; anonymous at first open does not necessarily mean new. Observe mobile journeys and ask guests who stopped why. Compare invitation types on volumes and participation alongside rates.
 
 ## Improve, ranked by expected impact and effort
 
@@ -26,7 +26,7 @@ Keep the activity-level no-invite holdout for additional participants and provis
 
 Predeclare the minimum useful gain, acceptable participation harm and review date. Illustratively, 11% to 15% needs about 1,110 journeys per arm before clustering (80% power; two-sided 5% significance). Account for actual clustering and sufficient independent activities; run at least two weeks and let final claim windows close. Report cross-activity guest overlap; friend spillovers between arms remain a limitation and may bias both comparisons.
 
-Monitor safety continuously: stop rollout on overselling or counter mismatch; require 99.5% available booking success with the conservative unknown-failure rate shown, and live p95 within two seconds with delivery coverage. Apply §4.2's sample thresholds (1,000 intents; 50 updates) and recurring-failure exceptions. Ship a useful gain with its activity-clustered 95% interval above zero and guardrails satisfied; investigate inconclusive results and revert harmful changes. Attendance remains unmeasured.
+Monitor safety continuously: stop rollout on overselling or counter mismatch; require 99.5% logical-intent booking success (exclude replays), showing the conservative unknown-failure rate, and live p95 within two seconds with delivery coverage. Apply §4.2's sample thresholds (1,000 intents; 50 updates) and recurring-failure exceptions. Ship a useful gain with its activity-clustered 95% interval above zero and guardrails satisfied; investigate inconclusive results and revert harmful changes. Attendance remains unmeasured.
 
 ## Decide
 

@@ -273,7 +273,16 @@ test('50 overlapping bookings measure local commit-observed latency with complet
   const actors = await Promise.all(Array.from({ length: 50 }, actor));
   const client = await connect(activity.id);
   client.socket.on('message', data => { const update = JSON.parse(String(data)) as Snapshot; if (update.eventId) ack(client.socket, update); });
-  const results = await Promise.all(actors.map(actorId => book(activity.id, actorId)));
+  const from = new Date().toISOString();
+  const started = performance.now();
+  const durations: number[] = [];
+  const results = await Promise.all(actors.map(async actorId => {
+    const start = performance.now();
+    const result = await book(activity.id, actorId);
+    durations.push(performance.now() - start);
+    return result;
+  }));
+  const elapsedMs = performance.now() - started;
   assert.ok(results.every(r => r.status === 201));
   await until(async () => (await owner.query(`SELECT count(*)::int AS n FROM live_deliveries d JOIN outbox_events e ON e.id=d.event_id
     WHERE e.activity_id=$1 AND d.ack_at IS NOT NULL`, [activity.id])).rows[0].n === 50);
@@ -285,11 +294,22 @@ test('50 overlapping bookings measure local commit-observed latency with complet
     percentile_disc(.95) WITHIN GROUP (ORDER BY delay_ms) AS p95, max(delay_ms) AS maximum
     FROM live_deliveries d JOIN outbox_events e ON e.id=d.event_id WHERE e.activity_id=$1`, [activity.id])).rows[0];
   assert.equal(maxima.length, 50); assert.equal(records.expected, 50); assert.equal(records.acknowledged, 50);
+  assert.equal(exact.analysis.status, 'observed');
+  assert.equal(exact.analysis.minObservedBookingUpdates, 50);
   assert.equal(exact.clients.find((c: { clientId: string }) => c.clientId === client.clientId).ackOnlyP95Ms, records.p95);
   // Host load can change attainment; preserve/report misses instead of making wall-clock speed a functional assertion.
   const state = (await request(`/activities/${activity.id}`)).data;
   assert.equal(state.confirmedCount, 50); assert.equal(state.participants.length, 50); assert.equal(state.version, 51);
-  console.log('LIVE_50_BOOKING_MEASUREMENT', JSON.stringify({ ...records, coverage: 1, timing: 'commit_observed', apiProcesses: 2 }));
+  const query = new URLSearchParams({ from, to: new Date().toISOString(), includeTest: 'true' });
+  const summary = (await request(`/metrics/summary?${query}`)).data;
+  assert.equal(summary.bookings.reliability.succeeded, 50);
+  assert.equal(summary.bookings.reliability.eligibleFailures, 0);
+  assert.equal(summary.bookings.reliability.unknownFailures, 0);
+  assert.equal(summary.bookings.rawOutcomes.total, 50);
+  durations.sort((a, b) => a - b);
+  console.log('LIVE_50_BOOKING_MEASUREMENT', JSON.stringify({ ...records, coverage: 1, timing: 'commit_observed', apiProcesses: 2,
+    availableCapacity: { concurrentRequests: 50, elapsedMs, requestP50Ms: durations[24], requestP95Ms: durations[47],
+      requestMaxMs: durations[49], bookings: summary.bookings, analysis: exact.analysis } }));
   client.socket.terminate();
 });
 
@@ -514,9 +534,10 @@ test('bounded reconciliation pages advance past unresolved writes and revisit th
       THEN RAISE EXCEPTION 'Scoped first-page write failure'; END IF; RETURN NEW; END $$;
     CREATE TRIGGER fail_page BEFORE INSERT ON live_observations FOR EACH ROW EXECUTE FUNCTION fail_first_proxy_page()`);
   try {
-    for (let offset=0;offset<actors.length;offset+=25) {
-      const results=await Promise.all(actors.slice(offset,offset+25).map(id=>book(activity.id,id)));
-      assert.ok(results.every(result=>result.status===201));
+    // This tests traversal beyond a 100-row page, not contention (covered by the 50-booking workload).
+    for (let offset=0;offset<actors.length;offset+=5) {
+      const results=await Promise.all(actors.slice(offset,offset+5).map(id=>book(activity.id,id)));
+      assert.ok(results.every(result=>result.status===201), JSON.stringify(results.filter(result=>result.status!==201)));
     }
     await until(async () => (await owner.query(`SELECT count(*)::int AS n FROM live_observations o JOIN outbox_events e ON e.id=o.event_id
       WHERE e.activity_id=$1 AND o.timing='pre_commit_proxy'`,[activity.id])).rows[0].n===104,15_000);
