@@ -15,6 +15,8 @@ Full `npm run verify` passed again (12 tooling, 141 backend, 108 web and 49 Flut
 | Public | `91d3aaf1-b69a-4c57-bd49-0199d1b0ee4e` | `5cd7ef09-39fd-4fbf-ab6b-b3d6670aa1ba` | `32f12983-387d-453a-96d3-0c1ec453de5c` |
 | Vouch | `0263027d-9012-4bbe-90af-4d595323ad06` | `1649a994-5bed-4b4a-9b52-d7220b36d4d9` | `7e2d7c62-83c8-41db-ba14-3311829654e8` |
 
+Identity-spacing follow-up: 16 px separates the heading from the first choice, and 12 px separates identity buttons. Both native captures were visually inspected: [public identity chooser](experience-refinement/public-identities.png), [vouch identity chooser](experience-refinement/vouch-identities.png). Flutter analysis and all 49 widget tests passed; both real iOS live/offline invitation journeys passed again with the capture-enabled final tree. Standards/specification review found no issues. Existing selection and pending-state behavior is preserved.
+
 ## Executed validation
 
 The three issue seams were used: rendered web UI with API/storage boundaries; Flutter widgets with API/session boundaries; and real local API/PostgreSQL/Redis/live integration. Local API used port 3104, Vite port 5175, PostgreSQL 17.6 and Redis 8.2.1. Native execution used iPhone 17 simulator, iOS 26.2.
