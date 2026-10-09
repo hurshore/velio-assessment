@@ -32,6 +32,8 @@ PORT=3103 npm run smoke
 
 All twelve migrations applied in order to the fresh volume. The migration role reads the ledger; the runtime role successfully reads `metric_invite_open_units` and reconciliation. The runtime role intentionally cannot read `schema_migrations`. Starting the combined dev command while port 5173 was occupied exited cleanly; separate documented launch commands with a Vite port override resolved that local conflict. Both health/readiness probes then returned 200. Original-stack API/web ports were 3102/5173.
 
+From that clean source export's `mobile/`, `flutter test integration_test/api_roundtrip_test.dart -d 8860318F-EE81-4AD3-86FB-0D4A368032A2 --dart-define=API_BASE_URL=http://127.0.0.1:3103` built and launched iOS and passed its real readiness roundtrip (request `c10d6352-4251-4631-b918-591e78915258`). The final ticket worktree supplied the additional handoff tests and the additive live sample-status field; its full verification passed separately below.
+
 The historical seed window (2026-09-01..09-08, `includeTest=true`) matched [the hand-calculated demonstration](product-metrics.md): reliability S=1/F=0/U=1, eligible rate 1 and conservative rate 0.5; bookers 1/7; headline conversion 3/7, eligible 3/6; public K 1/activated 0.5 and vouch K 0.5/activated 0.5; holdout treatment two participants versus control one across two activities. Reconciliation had zero violations. The inspection artifact includes native activities added after seeding, so its global activity count exceeds the 13 seeded activities. The seed smoke suite independently applies all seeds twice to an empty test database and checks exactly 13 consistent activities.
 
 ## Web → Flutter → live web demonstration
@@ -105,3 +107,13 @@ OWNERSHIP remains a concise one-page proposal (615 words), explicitly hypothetic
 The first full run found two fragile test setups under concurrent native builds: a 700ms expiry window included creating another identity, and a reconciliation-pagination fixture issued 25 contending writes per batch despite testing pagination. Both passed in isolation. Expiry now changes fixture state explicitly between pre/post checks; pagination still verifies all 105 updates beyond the 100-row boundary using five-write batches. Required coordinated capacity races and production deadlines are unchanged. Focused corrected checks passed.
 
 Retained limits: client clock skew inside clamping bounds; late-ingested opens can change earlier reports; uncorrelated cross-device journeys without a shared ID; the full-history open scan exceeds the 1.5s deadline near 2.5M events (retryable `/api/metrics/product` 500; window pruning or an ingestion-maintained unit table remains follow-up); local timing/hardware and synthetic cohorts; unverified demo contacts, no payment, installed-app-only custom links; automatic crash-lifetime reconciliation, production monitoring and properly powered experiments remain follow-ups. Attendance and optional polish remain excluded.
+
+## Standards
+
+Independent review of `git diff 5eabea4...d1a4f3e` found no documented standards violations. One possible non-blocking Duplicated Code smell: `web_handoff_test.dart` and `handoff_metrics_test.dart` repeat the short identity-create-and-claim UI sequence. Kept inline so each acceptance journey remains readable; shared transport and waiting helpers already reuse the failure/recovery mechanics. No other actionable baseline smells were found.
+
+## Spec
+
+Independent review against issue #12 and its PLANS.md references found no missing/partial requirements, scope creep or incorrect implementations. Both rails, native entry methods, actual metric linkage, replay/recovery invariants, races/interruption, clean startup and retained limitations were covered. The reviewer also checked the final clean-source iOS roundtrip report addition.
+
+Review totals: Standards zero violations and one non-blocking duplication heuristic; Spec zero findings. Final additions after the reviewed implementation commit record completed checks and these review results only.

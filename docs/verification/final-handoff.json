@@ -1346,5 +1346,24 @@
       ]
     },
     "scope": "Local measurements with stated samples; not production attainment."
+  },
+  "finalVerification": {
+    "command": "npm run verify",
+    "passed": true,
+    "tests": {
+      "tooling": 12,
+      "backend": 141,
+      "web": 104,
+      "flutter": 48
+    },
+    "typechecks": true,
+    "builds": true,
+    "flutterAnalysis": true,
+    "cleanSourceNativeRoundtrip": {
+      "passed": true,
+      "api": "http://127.0.0.1:3103",
+      "requestId": "c10d6352-4251-4631-b918-591e78915258",
+      "sourceCommit": "5eabea4"
+    }
   }
 }
