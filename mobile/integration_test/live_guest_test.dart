@@ -149,6 +149,11 @@ void main() {
         await tester.ensureVisible(find.text('Choose demo identity'));
         await tester.tap(find.text('Choose demo identity'));
         await helpers.waitFor(tester, find.text('Create demo identity'));
+        await tester.ensureVisible(
+          find.text('Or choose an existing demo identity'),
+        );
+        await tester.pumpAndSettle();
+        await binding.takeScreenshot('$rail-identities');
         final displayName = 'Amara · review ${journey.substring(0, 6)}';
         await tester.enterText(
           find.widgetWithText(TextField, 'Your display name'),

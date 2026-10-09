@@ -1086,10 +1086,14 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
             'Or choose an existing demo identity',
             style: Theme.of(context).textTheme.titleLarge,
           ),
+          const SizedBox(height: 16),
           for (final identity in _identities!)
-            OutlinedButton(
-              onPressed: _busy ? null : () => _select(identity),
-              child: Text(identity.displayName),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: OutlinedButton(
+                onPressed: _busy ? null : () => _select(identity),
+                child: Text(identity.displayName),
+              ),
             ),
         ],
         if (_identity != null)
