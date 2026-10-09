@@ -279,6 +279,7 @@ void main() {
         find.widgetWithText(TextField, 'Invitation code'),
         raceCode,
       );
+      await tester.ensureVisible(find.text('View invitation'));
       await tester.tap(find.text('View invitation'));
       await waitFor(tester, find.text(raceActivity['title'] as String));
       await waitFor(tester, find.text('Claim my seat'));
@@ -306,6 +307,7 @@ void main() {
         )).booking,
         isNull,
       );
+      await tester.ensureVisible(find.text('View invitation'));
       await tester.ensureVisible(find.text('View invitation'));
       await tester.tap(find.text('View invitation'));
       await waitFor(

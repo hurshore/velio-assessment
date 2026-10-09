@@ -11,6 +11,7 @@ import 'package:velio_mobile/guest_api.dart';
 import 'package:velio_mobile/guest_live.dart';
 import 'package:velio_mobile/guest_screen.dart';
 import 'package:velio_mobile/guest_session.dart';
+import 'package:velio_mobile/velio_theme.dart';
 
 import 'public_guest_test.dart' as helpers;
 
@@ -61,7 +62,7 @@ Future<void> enabled(WidgetTester tester, String title) async {
 }
 
 void main() {
-  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   testWidgets(
     'both rails converge live, recover a lost claim, persist offline confirmation and resume',
     (tester) async {
@@ -76,7 +77,7 @@ void main() {
             '/identities',
             method: 'POST',
             body: {
-              'displayName': 'Live host $journey',
+              'displayName': 'Kemi · review ${journey.substring(0, 6)}',
               'journeyId': newId(),
               'platform': 'web',
               'test': true,
@@ -86,7 +87,9 @@ void main() {
         final activity = await helpers.treatmentActivity(
           setup,
           host['id'] as String,
-          '$rail live supper $journey',
+          rail == 'vouch'
+              ? 'Coffee, conversation & a marina walk'
+              : 'A little art, a little coffee',
           capacity: 2,
         );
         final invite = object(
@@ -122,6 +125,8 @@ void main() {
         Future<void> launch() async {
           await tester.pumpWidget(
             MaterialApp(
+              theme: VelioTheme.theme,
+              debugShowCheckedModeBanner: false,
               home: GuestScreen(
                 session: session,
                 api: api,
@@ -138,10 +143,18 @@ void main() {
           tester,
           find.text('Live availability connected.'),
         );
+        await tester.ensureVisible(find.text(activity['title'] as String));
+        await tester.pump(const Duration(milliseconds: 300));
+        await binding.takeScreenshot('$rail-preview');
         await tester.ensureVisible(find.text('Choose demo identity'));
         await tester.tap(find.text('Choose demo identity'));
         await helpers.waitFor(tester, find.text('Create demo identity'));
-        final displayName = 'Live guest $journey';
+        await tester.ensureVisible(
+          find.text('Or choose an existing demo identity'),
+        );
+        await tester.pumpAndSettle();
+        await binding.takeScreenshot('$rail-identities');
+        final displayName = 'Amara · review ${journey.substring(0, 6)}';
         await tester.enterText(
           find.widgetWithText(TextField, 'Your display name'),
           displayName,
@@ -213,6 +226,9 @@ void main() {
         await tester.tap(find.text('Claim my seat'));
         await helpers.waitFor(tester, find.text('Your seat is confirmed'));
         await helpers.waitFor(tester, find.text(displayName));
+        await tester.ensureVisible(find.text(activity['title'] as String));
+        await tester.pumpAndSettle();
+        await binding.takeScreenshot('$rail-confirmed');
         expect(transport.keys, hasLength(1));
         final actor = session.actorId!;
         final confirmed = await setup.ownBooking(
@@ -268,6 +284,9 @@ void main() {
         expect(find.textContaining('Saved/offline details'), findsOneWidget);
         expect(find.text(displayName), findsOneWidget);
         expect(find.text(host['displayName'] as String), findsOneWidget);
+        await tester.ensureVisible(find.text(activity['title'] as String));
+        await tester.pumpAndSettle();
+        await binding.takeScreenshot('$rail-offline-recovered');
         transport.offline = false;
         await helpers.waitFor(
           tester,
@@ -285,6 +304,18 @@ void main() {
           'VELIO_LIVE_GUEST_VERIFIED rail=$rail journey=$journey activity=${activity['id']} actor=$actor booking=${confirmed.booking!['id']} code=$code',
         );
         await tester.pumpWidget(const SizedBox.shrink());
+        final unavailableFile = File(
+          '${directory.path}/unavailable-$journey.json',
+        );
+        session = await GuestSession.open(unavailableFile);
+        await session.enter(code);
+        await launch();
+        await helpers.waitFor(tester, find.text(unavailableMessages['full']!));
+        await tester.ensureVisible(find.text(unavailableMessages['full']!));
+        await tester.pump(const Duration(milliseconds: 300));
+        await binding.takeScreenshot('$rail-full');
+        await tester.pumpWidget(const SizedBox.shrink());
+        await unavailableFile.delete();
         await file.delete();
       }
     },

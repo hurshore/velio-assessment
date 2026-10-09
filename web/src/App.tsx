@@ -23,7 +23,7 @@ const currentPath = () => window.location.pathname;
 export function App() {
   const guestCode = inviteCodeFromPath(useSyncExternalStore(subscribeToHistory, currentPath));
   if (guestCode !== null) return <main className="guest">
-    <p className="eyebrow">VELIO / YOU'RE INVITED</p>
+    <a className="brand" href="/">velio<span>.</span></a><p className="eyebrow">YOU’RE INVITED</p>
     <GuestInvite code={guestCode} />
   </main>;
   return <HostAndBooker />;
@@ -56,10 +56,9 @@ function HostAndBooker() {
     return () => { active = false; clearTimeout(timeout); controller.abort(); };
   }, [attempt]);
   return <main>
-    <p className="eyebrow">VELIO / MAKE A PLAN</p>
-    <h1>Make time for good company.</h1>
-    <p>Host something worth showing up for. Explore the details before you commit.</p>
-    <section aria-live="polite" aria-label="API connection">
+
+    {connection.status === 'ready' ? <HostApp /> : null}
+    <details className="diagnostics" open={connection.status !== 'ready'}><summary>Reviewer diagnostics</summary><section aria-live="polite" aria-label="API connection">
       {connection.status === 'loading' ? <p>Checking API connection…</p> : connection.status === 'error' ? <>
         <h2>Connection unavailable</h2>
         <p>{connection.message}</p>
@@ -70,7 +69,6 @@ function HostAndBooker() {
         <p>PostgreSQL and Redis are ready.</p>
         <small>Request: {connection.requestId}</small>
       </>}
-    </section>
-    {connection.status === 'ready' ? <HostApp /> : null}
+    </section><a href={`${apiBase}/api/metrics`}>Open metrics</a></details>
   </main>;
 }

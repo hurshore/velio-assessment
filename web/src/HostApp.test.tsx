@@ -1,8 +1,15 @@
 import { StrictMode } from 'react';
 import { afterEach, expect, test, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render as renderUI, screen, waitFor, within } from '@testing-library/react';
 import { HostApp } from './HostApp';
-afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); });
+import type { ReactNode } from 'react';
+function render(ui: ReactNode) {
+  const view = renderUI(ui);
+  fireEvent.click(screen.getByRole('button', { name: /Using demo as/ }));
+  fireEvent.click(screen.getByText('Demo guidance & tracking'));
+  return view;
+}
+afterEach(() => { cleanup(); window.history.replaceState(null, '', '/'); localStorage.clear(); vi.unstubAllGlobals(); });
 const identity = { id: '11111111-1111-4111-8111-111111111111', displayName: 'Amara', generation: 0, acquisitionParentId: null, acquisitionRootId: '11111111-1111-4111-8111-111111111111', acquisitionRail: null, synthetic: false, test: false };
 function response(data: unknown) { return new Response(JSON.stringify({ data, requestId: 'ui-test' })); }
 test('selects and persists a clearly labelled demo identity across reloads', async () => {
@@ -18,8 +25,9 @@ test('selects and persists a clearly labelled demo identity across reloads', asy
 });
 
 function fillActivity() {
+  fireEvent.click(screen.getByRole('link', { name: /Host an activity/ }));
   for (const [label, value] of [['Title', 'Sunrise walk'], ['Description', 'A gentle walk.'], ['Meeting location', 'Marina gate'],
-    ['Start date and time (device timezone)', '2030-01-15T07:00'], ['Display timezone (IANA)', 'Africa/Lagos'], ['Capacity', '2'], ['Price (minor units)', '1500'], ['Currency', 'NGN']]) {
+    ['Start date and time (device timezone)', '2030-01-15T07:00'], ['Display timezone (IANA)', 'Africa/Lagos'], ['Capacity', '2'], ['Price per person', '15.00'], ['Currency', 'NGN']]) {
     fireEvent.change(screen.getByLabelText(label!), { target: { value } });
   }
 }
@@ -55,9 +63,9 @@ test('shows authoritative details and records a rendered view, including anonymo
     return Promise.resolve(response(url.endsWith('/activities') ? [activity] : activity));
   }));
   render(<HostApp />);
-  fireEvent.click(await screen.findByRole('button', { name: 'View Sunrise walk' }));
+  fireEvent.click(await screen.findByRole('link', { name: /Sunrise walk/ }));
   expect(await screen.findByText('No confirmed participants yet. Hosting does not consume a seat.')).toBeTruthy();
-  expect(screen.getByText('Marina gate')).toBeTruthy();
+  expect(within(screen.getByRole('region', { name: 'Activity details' })).getByText('Marina gate')).toBeTruthy();
   expect(screen.getByText(`Shared plan: ${activity.planId}`)).toBeTruthy();
   await waitFor(() => expect(events).toHaveLength(1));
   expect(events[0]).toMatchObject({ name: 'activity_viewed', source: 'client', schemaVersion: 1, platform: 'web', activityId: activity.id, planId: activity.planId });
@@ -143,9 +151,9 @@ test('failed view tracking retries the same event without hiding authoritative d
     return Promise.resolve(response(url.endsWith('/activities') ? [activity] : activity));
   }));
   render(<HostApp />);
-  fireEvent.click(await screen.findByRole('button', { name: 'View Sunrise walk' }));
+  fireEvent.click(await screen.findByRole('link', { name: /Sunrise walk/ }));
   expect(await screen.findByText(/View tracking could not be saved/)).toBeTruthy();
-  expect(screen.getByText('Marina gate')).toBeTruthy();
+  expect(within(screen.getByRole('region', { name: 'Activity details' })).getByText('Marina gate')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Retry view tracking' }));
   await waitFor(() => expect(events).toHaveLength(2));
   expect(events[1]?.id).toBe(events[0]?.id);
@@ -168,11 +176,11 @@ test('rendered view delivery survives closing details and retries its original c
   }));
   render(<HostApp />);
   await screen.findByRole('option', { name: 'Amara' });
-  fireEvent.click(await screen.findByRole('button', { name: 'View Sunrise walk' }));
+  fireEvent.click(await screen.findByRole('link', { name: /Sunrise walk/ }));
   await screen.findByText('Marina gate');
   await waitFor(() => expect(events).toHaveLength(1));
   const original = events[0]!;
-  fireEvent.click(screen.getByRole('button', { name: 'Close details' }));
+  fireEvent.click(screen.getByRole('button', { name: /Back to activities/ }));
   expect(original.signal.aborted).toBe(false);
   fireEvent.change(screen.getByLabelText('Demo identity'), { target: { value: secondIdentity.id } });
   failFirst(new Error('Telemetry unavailable.'));
@@ -204,10 +212,10 @@ for (const navigation of ['another activity', 'another identity', 'details refre
     }));
     render(<HostApp />);
     await screen.findByRole('option', { name: 'Amara' });
-    fireEvent.click(await screen.findByRole('button', { name: 'View Sunrise walk' }));
+    fireEvent.click(await screen.findByRole('link', { name: /Sunrise walk/ }));
     await waitFor(() => expect(events).toHaveLength(1));
     const original = events[0]!;
-    if (navigation === 'another activity') fireEvent.click(screen.getByRole('button', { name: 'View Evening picnic' }));
+    if (navigation === 'another activity') { fireEvent.click(screen.getByRole('button', { name: /Back to activities/ })); fireEvent.click(screen.getByRole('link', { name: /Evening picnic/ })); }
     if (navigation === 'another identity') fireEvent.change(screen.getByLabelText('Demo identity'), { target: { value: secondIdentity.id } });
     if (navigation === 'details refresh') fireEvent.click(screen.getByRole('button', { name: 'Refresh details' }));
     await waitFor(() => expect(events).toHaveLength(2));
@@ -238,7 +246,7 @@ test('StrictMode replay does not change a captured view event or cancel its deli
     return Promise.resolve(response(url.endsWith('/activities') ? [activity] : activity));
   }));
   render(<StrictMode><HostApp /></StrictMode>);
-  fireEvent.click(await screen.findByRole('button', { name: 'View Sunrise walk' }));
+  fireEvent.click(await screen.findByRole('link', { name: /Sunrise walk/ }));
   await waitFor(() => expect(events).toHaveLength(1));
   expect(events[0]!.signal.aborted).toBe(false);
   finish(response({ id: events[0]!.body.id, accepted: true }));
@@ -257,9 +265,9 @@ test('a delivery timeout stays observable after details close', async () => {
     return Promise.resolve(response(url.endsWith('/activities') ? [activity] : activity));
   }));
   render(<HostApp />);
-  fireEvent.click(await screen.findByRole('button', { name: 'View Sunrise walk' }));
+  fireEvent.click(await screen.findByRole('link', { name: /Sunrise walk/ }));
   await screen.findByText('Saving 1 rendered view event…');
-  fireEvent.click(screen.getByRole('button', { name: 'Close details' }));
+  fireEvent.click(screen.getByRole('button', { name: /Back to activities/ }));
   expect(await screen.findByText(/View tracking could not be saved/, {}, { timeout: 9000 })).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Retry view tracking' })).toBeTruthy();
 }, 10000);
@@ -285,4 +293,34 @@ test('identity creation sends an optional demo contact only when one is entered'
   await waitFor(() => expect(fetch.mock.calls.filter(([url, options]) => String(url).endsWith('/identities') && options.method === 'POST').length).toBe(2));
   const second = JSON.parse(fetch.mock.calls.filter(([url, options]) => String(url).endsWith('/identities') && options.method === 'POST')[1]![1].body);
   expect('contact' in second).toBe(false);
+});
+
+
+test('creation accepts native date input events and exact currency precision while preserving its route draft', async () => {
+  localStorage.setItem('velio.actor.v1', identity.id);
+  const creations: Record<string, unknown>[] = [];
+  vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options: RequestInit) => {
+    if (url.endsWith('/identities')) return Promise.resolve(response([identity]));
+    if (url.endsWith('/events')) return Promise.resolve(response({ id: JSON.parse(options.body as string).id, accepted: true }));
+    if (options.method === 'POST') { creations.push(JSON.parse(options.body as string)); return Promise.resolve(response(activity)); }
+    return Promise.resolve(response(url.endsWith('/activities') ? [] : activity));
+  }));
+  render(<HostApp />);
+  await screen.findByRole('option', { name: 'Amara' });
+  fillActivity();
+  fireEvent.input(screen.getByLabelText('Start date and time (device timezone)'), { target: { value: '2030-02-16T09:30' } });
+  fireEvent.click(screen.getByRole('button', { name: '← Back to hosting' }));
+  expect(window.location.pathname).toBe('/hosting');
+  fireEvent.click(screen.getByRole('link', { name: /Host an activity/ }));
+  expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('Sunrise walk');
+  fireEvent.change(screen.getByLabelText('Currency'), { target: { value: 'JPY' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create activity' }));
+  expect((await screen.findByRole('alert')).textContent).toMatch(/at most 0 decimal places/);
+  expect(creations).toHaveLength(0);
+  fireEvent.change(screen.getByLabelText('Currency'), { target: { value: 'KWD' } });
+  fireEvent.change(screen.getByLabelText('Price per person'), { target: { value: '15.257' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create activity' }));
+  await screen.findByRole('region', { name: 'Activity details' });
+  expect(creations[0]).toMatchObject({ priceMinor: 15257, currency: 'KWD', startsAt: new Date('2030-02-16T09:30').toISOString() });
+  expect(window.location.pathname).toBe(`/activities/${activity.id}`);
 });

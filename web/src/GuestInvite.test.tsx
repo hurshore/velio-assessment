@@ -156,3 +156,26 @@ test('a vouch preview explains recipient-bound eligibility and demo matching wit
   expect(screen.queryByText(/public link/i)).toBeNull();
   expect(screen.getByRole('link', { name: 'Open in the Velio app' })).toBeTruthy();
 });
+
+test('trying another code preserves a failed open and retries its original event ID', async () => {
+  window.history.replaceState(null, '', '/invite/ABCD2345EFGH');
+  const events: Record<string, unknown>[] = [];
+  vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options: RequestInit) => {
+    if (!url.endsWith('/events')) return Promise.resolve(ok(preview));
+    const event = JSON.parse(options.body as string);
+    events.push(event);
+    return events.length === 1 ? Promise.reject(new TypeError('Network down')) : Promise.resolve(ok({ id: event.id, accepted: true }, 202));
+  }));
+  render(<App />);
+  await screen.findByText('· Tracking needs attention');
+  expect(screen.getByRole('button', { name: 'Retry view tracking' }).closest('details')?.open).toBe(false);
+  fireEvent.click(screen.getByText(/Reviewer diagnostics/, { selector: 'summary' }));
+  expect(screen.getByRole('button', { name: 'Retry view tracking' }).closest('details')?.open).toBe(true);
+  await screen.findByRole('button', { name: 'Retry view tracking' });
+  fireEvent.click(screen.getByRole('link', { name: 'Try another code' }));
+  await screen.findByRole('heading', { name: 'Enter an invitation code' });
+  expect(window.location.pathname).toBe('/invite');
+  fireEvent.click(screen.getByRole('button', { name: 'Retry view tracking' }));
+  await waitFor(() => expect(events).toHaveLength(2));
+  expect(events[1]).toEqual(events[0]);
+});

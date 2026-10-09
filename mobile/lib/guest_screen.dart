@@ -10,6 +10,7 @@ import 'guest_api.dart';
 import 'guest_session.dart';
 import 'guest_live.dart';
 import 'readiness.dart';
+import 'velio_theme.dart';
 
 const unavailableMessages = {
   'full': 'The last spot has been taken. This activity is full.',
@@ -64,6 +65,7 @@ class GuestScreen extends StatefulWidget {
 
 class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
   late final TextEditingController _code, _name, _contact;
+  final _scroll = ScrollController();
   StreamSubscription<Uri>? _links;
   Timer? _refresh;
   InvitePreview? _preview;
@@ -424,6 +426,7 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
         }
         _stale = false;
       });
+      if (!sameInvitation) _showSummary();
       await _saveDetails();
       final actor = session.actorId;
       // Capture the anonymous/selected context of this rendered preview before later identity setup.
@@ -660,6 +663,13 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
     }
   }
 
+  void _showSummary() {
+    FocusScope.of(context).unfocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _scroll.hasClients) _scroll.jumpTo(0);
+    });
+  }
+
   Future<void> _confirm(
     BookingState result,
     InvitePreview preview,
@@ -667,11 +677,13 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
     required bool celebrate,
   }) async {
     if (!mounted) return;
+    final newlyConfirmed = _confirmation == null;
     setState(() {
       _confirmation = result;
       _uncertain = false;
       _message = null;
     });
+    if (newlyConfirmed) _showSummary();
     await _saveDetails();
     // Confirmation stays valid even if local persistence or haptic delivery fails.
     try {
@@ -734,7 +746,7 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
           _uncertain = session.hasPendingClaim(actor, preview.code);
           _message =
               '${failureMessage(error)}\nNo claim was submitted on this attempt.'
-              '${_uncertain ? ' Your earlier pending request is still saved; check/retry confirmation.' : ''}';
+              '${_uncertain ? ' Your earlier booking attempt is still saved; check your confirmation or retry it.' : ''}';
         });
       } else if (error is ApiFailure &&
           !error.retryable &&
@@ -770,7 +782,7 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
         setState(() {
           _uncertain = true;
           _message =
-              '${failureMessage(error)}\nChecking your confirmation. The claim response was uncertain; your request key is saved.';
+              '${failureMessage(error)}\nChecking your confirmation. We could not confirm the response; your original booking attempt is saved for recovery.';
         });
         try {
           await _lookup(preview, actor);
@@ -778,7 +790,7 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
           if (mounted) {
             setState(
               () => _message =
-                  '${failureMessage(error)}\nConfirmation is still uncertain. Check/retry with your saved request.',
+                  '${failureMessage(error)}\nYour confirmation is still unresolved. Check again or retry your original booking.',
             );
           }
         }
@@ -795,6 +807,7 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
     _links?.cancel();
     _refresh?.cancel();
     _stopLive();
+    _scroll.dispose();
     _code.dispose();
     _name.dispose();
     _contact.dispose();
@@ -803,9 +816,27 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Velio · Join a plan')),
+    appBar: AppBar(
+      title: const Text.rich(
+        TextSpan(
+          text: 'velio',
+          children: [
+            TextSpan(
+              text: '.',
+              style: TextStyle(color: VelioTheme.brandDot),
+            ),
+          ],
+        ),
+        style: TextStyle(
+          fontWeight: FontWeight.w800,
+          fontSize: 28,
+          letterSpacing: -1,
+        ),
+      ),
+    ),
     body: SafeArea(
       child: SingleChildScrollView(
+        controller: _scroll,
         padding: const EdgeInsets.all(24),
         child: Center(
           child: ConstrainedBox(
@@ -813,6 +844,32 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                if (_preview case final preview?) ..._details(preview),
+                if (_preview == null) ...[
+                  const SizedBox(height: 32),
+                  const Icon(
+                    Icons.people_outline_rounded,
+                    size: 64,
+                    color: VelioTheme.purple,
+                  ),
+                  const SizedBox(height: 32),
+                  Text(
+                    'Good company is one invitation away.',
+                    style: Theme.of(context).textTheme.headlineLarge,
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Enter your code to see the plan. You can explore the details before choosing an identity.',
+                  ),
+                  const SizedBox(height: 32),
+                ] else ...[
+                  const SizedBox(height: 32),
+                  Text(
+                    'Have another invitation?',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 TextField(
                   controller: _code,
                   maxLength: 64,
@@ -836,8 +893,27 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
                     child: Text('Working… Please wait.'),
                   ),
                 if (_message != null)
-                  Semantics(liveRegion: true, child: Text(_message!)),
-                if (_preview case final preview?) ..._details(preview),
+                  Semantics(
+                    liveRegion: true,
+                    child: Text(
+                      _message!
+                          .split('\n')
+                          .where((line) => !line.startsWith('Request: '))
+                          .join('\n'),
+                    ),
+                  ),
+                if (_message?.contains('Request: ') ?? false)
+                  ExpansionTile(
+                    title: const Text('Technical error details'),
+                    children: [
+                      SelectableText(
+                        _message!
+                            .split('\n')
+                            .where((line) => line.startsWith('Request: '))
+                            .join('\n'),
+                      ),
+                    ],
+                  ),
                 for (final intent in session.pendingClaims.where(
                   (intent) => !intent.matches(session.actorId, _preview?.code),
                 )) ...[
@@ -871,62 +947,27 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
       timestamp(activity, 'startsAt'),
       tz.getLocation(activity['timezone'] as String),
     );
-    final formatter = NumberFormat.currency(
-      name: activity['currency'] as String,
-    );
-    final price = activity['priceMinor'] == 0
-        ? 'Free'
-        : formatter.format(
-            (activity['priceMinor'] as int) /
-                _minorScale(formatter.decimalDigits!),
-          );
+    final price = _price(activity);
     final availability =
         (_confirmation?.availability.version ?? 0) >
             preview.availability.version
         ? _confirmation!.availability
         : preview.availability;
     return [
-      const SizedBox(height: 24),
-      Text(
-        '${preview.inviter['displayName']} invited you · ${preview.inviter['role']}',
+      const SizedBox(height: 16),
+      Chip(
+        avatar: Icon(
+          preview.rail == 'vouch' ? Icons.favorite_outline : Icons.north_east,
+          size: 18,
+        ),
+        label: Text('${preview.inviter['displayName']} invited you'),
       ),
+      const SizedBox(height: 16),
       Text(
         activity['title'] as String,
         style: Theme.of(context).textTheme.headlineMedium,
       ),
-      const SizedBox(height: 12),
-      Text(
-        preview.rail == 'vouch'
-            ? 'This is a personal vouch for one intended contact. Use the identity registered with that matching contact. It does not reserve a seat. Demo contacts are unverified; this matching simulates trust and is not authentication.'
-            : 'This public link is open to anyone. It is not a personal vouch and does not reserve a seat.',
-      ),
       const SizedBox(height: 16),
-      Text(activity['description'] as String),
-      Text(activity['meetingLocation'] as String),
-      Text(
-        '${DateFormat('EEEE, d MMMM yyyy · HH:mm').format(starts)} (${activity['timezone']})',
-      ),
-      Text('$price · no payment is collected in this demo'),
-      if (_stale)
-        const Text(
-          'Saved/offline details. Availability may have changed; reconnect and refresh before a new claim. Offline claims are not queued.',
-        ),
-      if (_savedAt != null && _stale) Text('Saved at $_savedAt'),
-      Text(
-        _liveReady ? 'Live availability connected.' : 'Live availability disconnected or refreshing. New claims wait for a fresh snapshot.',
-      ),
-      Text(
-        '${availability.remainingSeats} of ${availability.capacity} seats open at last check · refresh for current availability',
-      ),
-      const Text('Confirmed participants'),
-      if (_participants.isEmpty)
-        Text(
-          _stale
-              ? 'No saved participant list.'
-              : 'Waiting for the live participant list…',
-        ),
-      for (final participant in _participants)
-        Text(participant['displayName'] as String),
       if (_confirmation case final confirmation?) ...[
         const SizedBox(height: 16),
         Semantics(
@@ -936,16 +977,57 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
             style: Theme.of(context).textTheme.headlineSmall,
           ),
         ),
-        Text(
-          'You are a participant in this plan.\nPlan: ${preview.planId}\nBooking: ${confirmation.booking!['id']}',
-        ),
-        Text(
-          'Confirmed price: ${confirmation.booking!['priceMinor']} minor units ${confirmation.booking!['currency']}',
+        const Text('You’re on the list. Make time for good company.'),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: ExpansionTile(
+            title: const Text('Booking reference'),
+            children: [
+              SelectableText(
+                'Plan: ${preview.planId}\nBooking: ${confirmation.booking!['id']}',
+              ),
+              Text('Confirmed price: ${_price(confirmation.booking!)}'),
+            ],
+          ),
         ),
         if (confirmation.telemetryDegraded)
-          const Text('Your seat is confirmed; server tracking is delayed.'),
-      ] else ...[
-        if (preview.state != 'valid') Text(unavailableMessages[preview.state]!),
+          const Text('Your seat is confirmed; some diagnostics are delayed.'),
+      ],
+      if (_stale)
+        const Text(
+          'Saved/offline details. Availability may have changed. Reconnect and refresh before claiming a seat. New seats can only be claimed while online.',
+        ),
+      if (_savedAt != null && _stale) Text('Saved at $_savedAt'),
+      Text(
+        _liveReady ? 'Live availability connected.' : 'Live availability disconnected or refreshing. Reconnect and wait for availability to update before claiming a new seat.',
+      ),
+      Text(
+        '${availability.remainingSeats} of ${availability.capacity} seats open at last check · refresh for current availability',
+      ),
+      const SizedBox(height: 16),
+      _surface([
+        Text(activity['description'] as String),
+        const SizedBox(height: 20),
+        _fact(
+          Icons.calendar_today_outlined,
+          '${DateFormat('EEEE, d MMMM yyyy · HH:mm').format(starts)} (${activity['timezone']})',
+        ),
+        _fact(Icons.place_outlined, activity['meetingLocation'] as String),
+        _fact(Icons.payments_outlined, price),
+        _fact(
+          Icons.people_outline,
+          '${availability.remainingSeats} of ${availability.capacity} spots available',
+        ),
+      ]),
+      const SizedBox(height: 16),
+      if (_confirmation == null) ...[
+        if (preview.state != 'valid')
+          _surface([
+            Text(unavailableMessages[preview.state]!),
+            const Text(
+              'Already booked? Choose your original identity to recover confirmation.',
+            ),
+          ], guidance: true),
         if (_identity != null)
           Text('Selected demo identity: ${_identity!.displayName}'),
         if (!_recipientMatched)
@@ -958,11 +1040,6 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
           const Text(
             'Demo identity selection is for this assessment; it is not authentication.',
           ),
-          for (final identity in _identities!)
-            OutlinedButton(
-              onPressed: _busy ? null : () => _select(identity),
-              child: Text(identity.displayName),
-            ),
           if (preview.state == 'valid') ...[
             TextField(
               controller: _name,
@@ -1004,6 +1081,20 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
               child: const Text('Create demo identity'),
             ),
           ],
+          const SizedBox(height: 24),
+          Text(
+            'Or choose an existing demo identity',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 16),
+          for (final identity in _identities!)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: OutlinedButton(
+                onPressed: _busy ? null : () => _select(identity),
+                child: Text(identity.displayName),
+              ),
+            ),
         ],
         if (_identity != null)
           FilledButton(
@@ -1030,7 +1121,90 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
             child: const Text('Check existing booking'),
           ),
       ],
+      const SizedBox(height: 16),
+      _surface([
+        Text(
+          preview.rail == 'vouch'
+              ? 'A personal introduction'
+              : 'An open invitation',
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          preview.rail == 'vouch'
+              ? 'This is a personal vouch for one intended contact. Choose the identity with that matching demo contact. No seat is reserved.'
+              : 'Anyone with this public link can claim an available spot. No seat is reserved.',
+        ),
+      ], guidance: true),
+      const SizedBox(height: 20),
+      const SizedBox(height: 16),
+      Text(
+        'Confirmed participants',
+        style: Theme.of(context).textTheme.titleLarge,
+      ),
+      const SizedBox(height: 8),
+      if (_participants.isEmpty)
+        Text(
+          _stale
+              ? 'No saved participant list.'
+              : _liveReady
+              ? 'No confirmed participants yet.'
+              : 'Waiting for the live participant list…',
+        ),
+      for (final participant in _participants)
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: CircleAvatar(
+            backgroundColor: VelioTheme.lavender,
+            child: Text((participant['displayName'] as String).substring(0, 1)),
+          ),
+          title: Text(participant['displayName'] as String),
+        ),
+      const SizedBox(height: 24),
+      const ExpansionTile(
+        title: Text('About this demo'),
+        children: [
+          Padding(
+            padding: EdgeInsets.all(16),
+            child: Text(
+              'Demo identities and contacts are unverified. Matching simulates a personal introduction, not authentication. No payment is collected. Confirmed participants do not prove attendance.',
+            ),
+          ),
+        ],
+      ),
     ];
+  }
+
+  Widget _surface(List<Widget> children, {bool guidance = false}) => Container(
+    padding: const EdgeInsets.all(24),
+    decoration: BoxDecoration(
+      color: guidance ? VelioTheme.lavender : Colors.white,
+      borderRadius: BorderRadius.circular(28),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: children,
+    ),
+  );
+
+  Widget _fact(IconData icon, String text) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 8),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 20, color: VelioTheme.purple),
+        const SizedBox(width: 12),
+        Expanded(child: Text(text)),
+      ],
+    ),
+  );
+
+  String _price(Map<String, dynamic> source) {
+    if (source['priceMinor'] == 0) return 'Free';
+    final formatter = NumberFormat.currency(name: source['currency'] as String);
+    return formatter.format(
+      (source['priceMinor'] as int) / _minorScale(formatter.decimalDigits!),
+    );
   }
 
   int _minorScale(int digits) {

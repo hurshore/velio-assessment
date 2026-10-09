@@ -1,7 +1,7 @@
 import { afterEach, expect, test, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { HostApp } from './HostApp';
-afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); window.history.replaceState(null, '', '/'); localStorage.clear(); vi.unstubAllGlobals(); });
 const actorId = '11111111-1111-4111-8111-111111111111';
 const activity = { id: '22222222-2222-4222-8222-222222222222', hostId: actorId, title: 'Sunrise walk', description: 'A gentle walk.', meetingLocation: 'Marina gate',
   startsAt: '2030-01-15T07:00:00.000Z', timezone: 'Africa/Lagos', capacity: 1, confirmedCount: 0, remainingSeats: 1, priceMinor: 1500,
@@ -35,10 +35,11 @@ function setup(write: (options: RequestInit) => Promise<Response>, lookup: () =>
     return Promise.resolve(response(url.endsWith('/activities') ? [details()] : details()));
   }));
   render(<HostApp />);
+  fireEvent.click(screen.getByRole('button', { name: /Using demo as/ }));
 }
 async function open() {
   await screen.findByRole('option', { name: 'Amara' });
-  fireEvent.click(await screen.findByRole('button', { name: 'View Sunrise walk' }));
+  fireEvent.click(await screen.findByRole('link', { name: /Sunrise walk/ }));
   await waitFor(() => expect(screen.getByRole('button', { name: 'Book one seat' }).hasAttribute('disabled')).toBe(false));
 }
 test('a seat remains pending until commit and repeated taps do not send another write', async () => {
@@ -61,7 +62,7 @@ test('a lost committed response restores confirmation from own-booking lookup', 
   await open();
   fireEvent.click(screen.getByRole('button', { name: 'Book one seat' }));
   expect(await screen.findByText('Your seat is confirmed.')).toBeTruthy();
-  expect(screen.queryByRole('button', { name: 'Retry same booking request' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Retry booking' })).toBeNull();
 });
 
 test('an unresolved write persists its key across closing and reopening and retries that key', async () => {
@@ -73,10 +74,10 @@ test('an unresolved write persists its key across closing and reopening and retr
   });
   await open();
   fireEvent.click(screen.getByRole('button', { name: 'Book one seat' }));
-  await screen.findByRole('button', { name: 'Retry same booking request' });
-  fireEvent.click(screen.getByRole('button', { name: 'Close details' }));
-  fireEvent.click(screen.getByRole('button', { name: 'View Sunrise walk' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Retry same booking request' }));
+  await screen.findByRole('button', { name: 'Retry booking' });
+  fireEvent.click(screen.getByRole('button', { name: '← Back to activities' }));
+  fireEvent.click(screen.getByRole('link', { name: /Sunrise walk/ }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Retry booking' }));
   expect(await screen.findByText('Your seat is confirmed.')).toBeTruthy();
   expect(keys).toHaveLength(2);
   expect(keys[1]).toBe(keys[0]);
@@ -87,7 +88,7 @@ test('a sold-out race retains details and explains the lost seat without confirm
   await open();
   fireEvent.click(screen.getByRole('button', { name: 'Book one seat' }));
   expect(await screen.findByText(/The last spot was just taken/)).toBeTruthy();
-  expect(screen.getByText('Marina gate')).toBeTruthy();
+  expect(within(screen.getByRole('region', { name: 'Activity details' })).getByText('Marina gate')).toBeTruthy();
   expect(screen.queryByText('Your seat is confirmed.')).toBeNull();
 });
 
@@ -95,7 +96,7 @@ test('a booked user reopens confirmation even when the activity is full', async 
   const write = vi.fn();
   setup(write, () => ({ booking, availability: snapshot }));
   await screen.findByRole('option', { name: 'Amara' });
-  fireEvent.click(await screen.findByRole('button', { name: 'View Sunrise walk' }));
+  fireEvent.click(await screen.findByRole('link', { name: /Sunrise walk/ }));
   expect(await screen.findByText('Your seat is confirmed.')).toBeTruthy();
   expect(write).not.toHaveBeenCalled();
 });
@@ -124,11 +125,11 @@ for (const code of ['SOLD_OUT', 'ACTIVITY_STARTED', 'ACTIVITY_UNAVAILABLE']) {
     await screen.findByText(/Activity cannot be booked/);
     fireEvent.click(screen.getByRole('button', { name: 'Check confirmation' }));
     await waitFor(() => expect(screen.queryByText('Checking your confirmation…')).toBeNull());
-    expect(screen.queryByRole('button', { name: 'Retry same booking request' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Close details' }));
-    fireEvent.click(screen.getByRole('button', { name: 'View Sunrise walk' }));
+    expect(screen.queryByRole('button', { name: 'Retry booking' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '← Back to activities' }));
+    fireEvent.click(screen.getByRole('link', { name: /Sunrise walk/ }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Book one seat' }).hasAttribute('disabled')).toBe(true));
-    expect(screen.queryByRole('button', { name: 'Retry same booking request' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Retry booking' })).toBeNull();
     expect(write).toHaveBeenCalledTimes(1);
   });
 }
@@ -147,7 +148,7 @@ test('a failed confirmation check keeps a definitive rejection settled', async (
   await screen.findByText(/Activity is cancelled/);
   fireEvent.click(screen.getByRole('button', { name: 'Check confirmation' }));
   await screen.findByText(/Connection lost during lookup/);
-  expect(screen.queryByRole('button', { name: 'Retry same booking request' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Retry booking' })).toBeNull();
   expect(screen.getByRole('button', { name: 'Book one seat' }).hasAttribute('disabled')).toBe(true);
 });
 
@@ -163,15 +164,15 @@ for (const unavailable of ['full', 'started', 'cancelled']) {
       return { booking: null, availability: { ...snapshot, remainingSeats: detail.remainingSeats, confirmedCount: detail.confirmedCount } };
     }, () => detail);
     await screen.findByRole('option', { name: 'Amara' });
-    fireEvent.click(await screen.findByRole('button', { name: 'View Sunrise walk' }));
+    fireEvent.click(await screen.findByRole('link', { name: /Sunrise walk/ }));
     await screen.findByText(/Initial lookup unavailable/);
-    expect(screen.queryByRole('button', { name: 'Retry same booking request' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Retry booking' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Book one seat' }).hasAttribute('disabled')).toBe(true);
     expect(localStorage.getItem(`velio.booking.v1:${actorId}:${activity.id}`)).toBeNull();
     failed = false;
-    fireEvent.click(screen.getByRole('button', { name: 'Retry confirmation lookup' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Check confirmation again' }));
     await waitFor(() => expect(screen.queryByText(/Initial lookup unavailable/)).toBeNull());
-    expect(screen.queryByRole('button', { name: 'Retry same booking request' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Retry booking' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Book one seat' }).hasAttribute('disabled')).toBe(true);
     expect(write).not.toHaveBeenCalled();
   });
@@ -185,7 +186,7 @@ test('a missing-participants automatic refresh preserves confirmation and existi
   fireEvent.click(screen.getByRole('button', { name: 'Book one seat' }));
   expect(await screen.findByText('Your seat is confirmed.')).toBeTruthy();
   expect(await screen.findByText(/Could not refresh activity details.*participants/)).toBeTruthy();
-  expect(screen.getByText('Marina gate')).toBeTruthy();
+  expect(within(screen.getByRole('region', { name: 'Activity details' })).getByText('Marina gate')).toBeTruthy();
   expect(screen.getByText('No confirmed participants yet. Hosting does not consume a seat.')).toBeTruthy();
 });
 
@@ -201,11 +202,11 @@ test('genuine uncertainty retains its submitted key through failed lookup and re
   }, () => keys.length ? { ...activity, remainingSeats: 0, confirmedCount: 1 } : activity);
   await open();
   fireEvent.click(screen.getByRole('button', { name: 'Book one seat' }));
-  await screen.findByRole('button', { name: 'Retry same booking request' });
+  await screen.findByRole('button', { name: 'Retry booking' });
   expect(localStorage.getItem(`velio.booking.v1:${actorId}:${activity.id}`)).toBe(keys[0]);
-  fireEvent.click(screen.getByRole('button', { name: 'Close details' }));
-  fireEvent.click(screen.getByRole('button', { name: 'View Sunrise walk' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Retry same booking request' }));
+  fireEvent.click(screen.getByRole('button', { name: '← Back to activities' }));
+  fireEvent.click(screen.getByRole('link', { name: /Sunrise walk/ }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Retry booking' }));
   expect(await screen.findByText('Your seat is confirmed.')).toBeTruthy();
   expect(keys).toHaveLength(2);
   expect(keys[1]).toBe(keys[0]);
@@ -218,6 +219,6 @@ test('manual refresh also rejects missing participants without replacing usable 
   partial = true;
   fireEvent.click(screen.getByRole('button', { name: 'Refresh details' }));
   expect(await screen.findByText(/Could not refresh activity details.*participants/)).toBeTruthy();
-  expect(screen.getByText('Marina gate')).toBeTruthy();
+  expect(within(screen.getByRole('region', { name: 'Activity details' })).getByText('Marina gate')).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Book one seat' }).hasAttribute('disabled')).toBe(false);
 });

@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:velio_mobile/guest_api.dart';
 import 'package:velio_mobile/guest_screen.dart';
 import 'package:velio_mobile/guest_session.dart';
+import 'package:velio_mobile/velio_theme.dart';
 
 import 'live_guest_test.dart' show InterruptedTransport, enabled;
 import 'public_guest_test.dart' show waitFor;
@@ -14,7 +15,7 @@ import 'public_guest_test.dart' show waitFor;
 // Create/book/share two fresh two-seat activities on web before running this test.
 // Their hosts must be marked synthetic/test so these signups inherit that cohort.
 void main() {
-  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   testWidgets('web-created invitations fill their last seat in native Flutter', (
     tester,
   ) async {
@@ -45,6 +46,8 @@ void main() {
       });
       Future<void> launch() async => tester.pumpWidget(
         MaterialApp(
+          theme: VelioTheme.theme,
+          debugShowCheckedModeBanner: false,
           home: GuestScreen(
             session: session,
             api: api,
@@ -57,14 +60,25 @@ void main() {
         find.widgetWithText(TextField, 'Invitation code'),
         code,
       );
+      await tester.ensureVisible(find.text('View invitation'));
       await tester.tap(find.text('View invitation'));
       await waitFor(tester, find.text(preview.activity['title'] as String));
+      await tester.pump(const Duration(milliseconds: 300));
+      await binding.takeScreenshot('$rail-preview');
       await tester.ensureVisible(find.text('Choose demo identity'));
       await tester.tap(find.text('Choose demo identity'));
       await waitFor(tester, find.text('Create demo identity'));
       await tester.enterText(
         find.widgetWithText(TextField, 'Your display name'),
-        'Web handoff $rail guest',
+        (rail == 'vouch'
+            ? const String.fromEnvironment(
+                'HANDOFF_VOUCH_NAME',
+                defaultValue: 'Web handoff vouch guest',
+              )
+            : const String.fromEnvironment(
+                'HANDOFF_PUBLIC_NAME',
+                defaultValue: 'Web handoff public guest',
+              )),
       );
       if (rail == 'vouch') {
         await tester.enterText(
@@ -77,6 +91,9 @@ void main() {
       await enabled(tester, 'Claim my seat');
       await tester.tap(find.text('Claim my seat'));
       await waitFor(tester, find.text('Your seat is confirmed'));
+      await tester.ensureVisible(find.text('Your seat is confirmed'));
+      await tester.pump(const Duration(milliseconds: 300));
+      await binding.takeScreenshot('$rail-confirmed');
       final confirmed = await setup.ownBooking(preview, session.actorId!);
       expect(confirmed.availability.remainingSeats, 0);
       expect(confirmed.availability.confirmedCount, 2);
@@ -84,6 +101,9 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
       await launch();
       await waitFor(tester, find.text('Your seat is confirmed'));
+      await tester.ensureVisible(find.text('Your seat is confirmed'));
+      await tester.pump(const Duration(milliseconds: 300));
+      await binding.takeScreenshot('$rail-recovered');
       expect(
         (await setup.ownBooking(preview, session.actorId!)).booking!['id'],
         confirmed.booking!['id'],

@@ -1,19 +1,35 @@
-import { useId, useRef, useState } from 'react';
-import { api, ApiError, groupedCode, inviteLink, message, parseCreatedInvite, type Activity, type CreatedInvite } from './api';
+import { ErrorNotice } from './ErrorNotice';
+import { useEffect, useId, useRef, useState } from 'react';
+import { api, ApiError, stored, persist, groupedCode, inviteLink, message, parseCreatedInvite, type Activity, type CreatedInvite } from './api';
 
 interface VouchState {
   // A new session starts on every actor change, so a late response cannot land after switching away and back.
-  actorId: string; session: number; draft: string; creating: boolean; error: string; contactInvalid: boolean; status: string; created: CreatedInvite | null;
+  actorId: string; session: number; draft: string; creating: boolean; uncertain: boolean; error: string; contactInvalid: boolean; status: string; created: CreatedInvite | null;
 }
-const initial = (actorId: string, session = 0): VouchState => ({ actorId, session, draft: '', creating: false, error: '', contactInvalid: false, status: '', created: null });
+const initial = (actorId: string, session = 0): VouchState => ({ actorId, session, draft: '', creating: false, uncertain: false, error: '', contactInvalid: false, status: '', created: null });
 
 // Owned by ActivityDetails, above the view that remounts on refresh, so the draft, an in-flight
 // creation and its result survive ordinary detail refreshes. ActivityDetails remounts per activity;
-// a different actor starts empty, and responses for the previous actor are ignored.
-export function useVouch(actorId: string, journeyId: string) {
-  const [state, setState] = useState(() => initial(actorId));
-  if (state.actorId !== actorId) setState(initial(actorId, state.session + 1));
-  const current = state.actorId === actorId ? state : initial(actorId, state.session + 1);
+// a different actor restores only their own draft, and previous-session responses are ignored.
+export function useVouch(actorId: string, journeyId: string, activityId = '') {
+  const storageKey = `velio.vouch.v1:${actorId}:${activityId}`;
+  function restore(owner: string, session = 0): VouchState {
+    const empty = initial(owner, session);
+    try {
+      const saved = JSON.parse(stored(`velio.vouch.v1:${owner}:${activityId}`));
+      const created = saved.created ? parseCreatedInvite(saved.created, { id: activityId, planId: saved.created.planId }, 'vouch') : null;
+      return { ...empty, draft: typeof saved.draft === 'string' ? saved.draft : '', created,
+        uncertain: saved.uncertain === true || saved.creating === true };
+    } catch { return empty; }
+  }
+  const [state, setState] = useState(() => restore(actorId));
+  useEffect(() => {
+    if (state.actorId === actorId && !persist(storageKey, JSON.stringify({ draft: state.draft, created: state.created, creating: state.creating, uncertain: state.uncertain }))) {
+      setState(previous => previous.status.includes('storage is unavailable') ? previous : { ...previous, status: 'Browser storage is unavailable. Keep this link and contact before reloading.' });
+    }
+  }, [state.actorId, state.draft, state.created, state.creating, state.uncertain, actorId, storageKey]);
+  if (state.actorId !== actorId) setState(restore(actorId, state.session + 1));
+  const current = state.actorId === actorId ? state : restore(actorId, state.session + 1);
   const update = (session: number, change: (previous: VouchState) => Partial<VouchState>) =>
     setState(previous => previous.session === session ? { ...previous, ...change(previous) } : previous);
   return {
@@ -34,13 +50,14 @@ export function useVouch(actorId: string, journeyId: string) {
         return false;
       }
       const owner = current.session;
-      update(owner, () => ({ creating: true, error: '', contactInvalid: false, status: '' }));
+      const alreadyUncertain = current.uncertain;
+      update(owner, () => ({ creating: true, uncertain: true, error: '', contactInvalid: false, status: '' }));
       api(`/activities/${activity.id}/invites`, { actorId, body: { rail: 'vouch', recipientContact: current.draft.trim(), platform: 'web', journeyId } })
         .then(data => {
           const created = parseCreatedInvite(data, activity, 'vouch');
-          update(owner, () => ({ creating: false, created, status: `Vouch created for ${created.recipientContact}. Only they can claim it.` }));
+          update(owner, () => ({ creating: false, uncertain: alreadyUncertain, created, status: `Vouch created for ${created.recipientContact}. Only they can claim it.` }));
         })
-        .catch(failure => update(owner, () => ({ creating: false, error: message(failure),
+        .catch(failure => update(owner, () => ({ creating: false, uncertain: alreadyUncertain || !(failure instanceof ApiError && !failure.retryable), error: message(failure),
           contactInvalid: failure instanceof ApiError && (failure.code === 'INVALID_REQUEST' || failure.code === 'SELF_INVITE') })));
       return true;
     },
@@ -55,7 +72,7 @@ export function VouchShare({ activity, vouch }: { activity: Activity; vouch: Vou
   const hintId = useId();
   const createdId = useId();
   const full = activity.remainingSeats === 0;
-  const { created } = vouch;
+  const created = vouch.created?.planId === activity.planId ? vouch.created : null;
   async function copy(link: string) {
     try { await navigator.clipboard.writeText(link); vouch.announce('Vouch link copied.'); }
     catch { vouch.announce('Copying is unavailable here. Select the link and copy it manually.'); }
@@ -74,7 +91,7 @@ export function VouchShare({ activity, vouch }: { activity: Activity; vouch: Vou
       <p className="hint" id={hintId}>Matching ignores letter case, spaces and punctuation but nothing else: use the same format the guest saved, for example the same country code or none.</p>
       <button disabled={vouch.creating || full}>{vouch.creating ? 'Creating vouch…' : 'Create vouch'}</button>
     </form>
-    {vouch.error ? <p role="alert" id={errorId}>{vouch.error}</p> : null}
+    {vouch.error ? <ErrorNotice id={errorId} text={vouch.error} /> : null}
     {created ? <section aria-labelledby={createdId}>
       <h5 id={createdId}>Vouch link for {created.recipientContact}</h5>
       <p>Only {created.recipientContact} can claim this vouch.</p>
@@ -83,6 +100,6 @@ export function VouchShare({ activity, vouch }: { activity: Activity; vouch: Vou
       <p className="hint">Expires <time dateTime={created.expiresAt}>{new Date(created.expiresAt).toLocaleString()}</time>.</p>
       <button onClick={() => void copy(link)}>Copy vouch link</button>
     </section> : null}
-    <p role="status" className="live">{vouch.status}</p>
+    <p role="status" className="live">{vouch.uncertain && !vouch.creating ? "A previous vouch request may have completed. Keep any issued link before creating another. " : ""}{vouch.status}</p>
   </div>;
 }

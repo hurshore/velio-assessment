@@ -75,7 +75,7 @@ Process health remains 200 during dependency outages; readiness returns a safe r
 
 ## Create and inspect an activity
 
-Open the web, select a seeded demo host or create an organic identity, and fill the activity form. The selection and anonymous journey survive reload in browser storage; identities themselves persist in PostgreSQL. Demo identity selection is not production authentication. Date/time entry uses the explicitly labelled device timezone; the IANA display timezone previews the same absolute instant. Capacity is a positive integer. Prices use non-negative minor units and an explicit currency (no payment).
+Open the web, select a seeded demo host or create an organic identity, then choose **Host an activity** and fill the activity form. The selection and anonymous journey survive reload in browser storage; identities themselves persist in PostgreSQL. Demo identity selection is not production authentication. Date/time entry uses the explicitly labelled device timezone; the IANA display timezone previews the same absolute instant. Capacity is a positive integer. Enter non-negative prices in normal currency units with an explicit currency; the form converts exactly to integer minor units using that currency’s fractional precision (no payment).
 
 Creation shows a pending discovery row, then authoritative details with its shared plan, remaining seats and booking-derived participants. Rejection removes the pending row and preserves inputs. After an uncertain network response, refresh discovery before retrying. Activity details subscribe to live snapshots and show connection/stale state; a displayed seat is never reserved. Hosting alone consumes no seat.
 
@@ -151,9 +151,21 @@ Each report runs on one pooled connection in a read-only snapshot, two reports a
 
 Focused checks: `node --env-file=.env --import tsx --test backend/test/metrics.test.ts backend/test/seed.test.ts`. Evidence: [the product metrics report](docs/verification/product-metrics.md). Contract: [queryable metrics](docs/contracts/api.md#queryable-technical-metrics-funnels-and-holdout-issue-10).
 
+## Refined web and guest experience (#27)
+
+Start at `/` (Explore) without choosing an identity. `/hosting` shows activities hosted by the selected demo identity; **Using demo as…** opens the identity chooser. **Host an activity** opens `/activities/new`. Activity cards open `/activities/:id`, where booking, confirmation, participants and **Invite friends** belong to that plan. Browser Back/Forward and direct reload preserve these routes. Deployments must serve the SPA `index.html` for `/hosting`, `/activities/*`, `/invite` and `/invite/*`, while keeping `/api/*` routed to the API.
+
+Creation defaults to tomorrow at 09:00 in the device timezone, two spots, and free in NGN. Changing the display timezone previews the same instant. Enter normal currency amounts: `15.25 NGN` becomes `1525` minor units; supported zero/three-decimal currencies use their own precision. Excess precision is rejected. Back navigation and failed submissions keep the current actor's creation draft; successful creation clears it. Creation drafts are session-local, not persisted across a full reload.
+
+Eligible hosts and confirmed bookers choose **Vouch for a contact** or **Share a public link** before seeing a form. Public results and vouch drafts/results are stored per actor/activity, survive detail refresh and reload, and never appear under another identity. A reloaded in-flight invitation request warns that it may have completed; invitations have no server-side idempotency/history recovery endpoint, so the app does not silently issue another. Contact edits hide the old vouch without revoking it. Private browsing/storage failures show guidance to keep the link manually.
+
+The web guest routes retain activity context when a new claim is unavailable and offer **Recover booking in the app** for an existing booker. Flutter shows the preview before demo identity setup, a committed confirmation near the title, clearly labelled offline availability and a keyboard-safe scrollable action area. Reference-inspired colors/shapes are semantic CSS variables and `VelioTheme`; the font falls back to the system sans-serif. Abstract activity illustrations avoid suggesting photos of activities that have no image.
+
+Successful connection checks and metrics access are under **Reviewer diagnostics**. Technical IDs and server references are expandable; failed rendered-event delivery remains visible with its original-ID retry. [Executed checks, both invitation journeys and screenshots](docs/verification/experience-refinement.md).
+
 ## Share a public link and preview it as a guest
 
-In a treatment activity, a host or confirmed booker sees a **Public share link** panel with remaining seats and its trust semantics: anyone holding the link can view and claim an open seat, it is not a personal vouch, and it reserves nothing. **Create public link** returns an opaque 12-character server code and a link to `/invite/<code>`, with Copy and (where the browser supports it) Share. Links expire 24 hours after creation or at activity start, whichever is first. Full, started and cancelled activities cannot be shared; control activities and a disabled creation switch refuse creation server-side.
+In a treatment activity, a host or confirmed booker sees **Invite friends**, then **Share a public link**, with remaining seats and its trust semantics: anyone holding the link can view and claim an open seat, it is not a personal vouch, and it reserves nothing. **Create public link** returns an opaque 12-character server code and a link to `/invite/<code>`, with Copy and (where the browser supports it) Share. Links expire 24 hours after creation or at activity start, whichever is first. Full, started and cancelled activities cannot be shared; control activities and a disabled creation switch refuse creation server-side.
 
 Opening `/invite/<code>` shows a responsive guest preview: inviter display name and role, activity details, local time with its IANA zone, price and current availability. Full, expired, started and cancelled links keep their context visible and do not prompt a claim. A valid link shows the grouped code and an **Open in the Velio app** link (`velio://invite/<code>?journey=<id>`, so the app can continue this guest journey); deferred deep linking is not assumed, so the code is the dependable path after a fresh install. `/invite` alone offers code entry. The web does not claim: guests claim in the Flutter app (#8) through the same API. Rendering the preview sends one `invite_opened` event with the persistent journey ID; fetching the preview does not, so link-unfurling bots are not counted. Production web hosting must serve `index.html` for `/invite/*` (Vite dev does this already).
 
@@ -170,13 +182,13 @@ Run the app, enter the shared code or open `velio://invite/<code>?journey=<UUID>
 
 ## Vouch for one contact
 
-Next to the public link, a **Vouch for a contact** panel creates a single-use vouch for one email address or phone number. Before creation it explains:
+Under **Invite friends**, the **Vouch for a contact** choice creates a single-use vouch for one email address or phone number. Before creation it explains:
 
 - only the identity whose saved contact matches can claim;
 - contacts are not verified in this demo, and matching ignores case, spaces and punctuation but nothing else, so both sides need the same format (no country code is inferred);
 - a vouch expires like a link and reserves no seat.
 
-The created link is labelled with its recipient. Editing the contact hides that link and announces that the vouch remains valid; hiding it does not revoke it. The draft, an in-flight creation and its result survive detail refreshes and reset when the identity changes. Earlier vouches are not listed: invite-history management is a follow-up.
+The created link is labelled with its recipient. Editing the contact hides that link and announces that the vouch remains valid; hiding it does not revoke it. The draft, an in-flight creation and its result survive detail refreshes and reloads in actor/activity-scoped browser storage. Switching identity restores only that identity's saved draft. Earlier vouches are not listed: invite-history management is a follow-up.
 
 Identities can be created with an optional demo contact (set once, never shown to others). The guest preview of a vouch explains recipient-bound eligibility without revealing the contact. Claims check the claimant's contact inside the booking transaction. Wrong recipients get `RECIPIENT_MISMATCH` and consume nothing, while the recipient can always reopen their booking.
 
@@ -220,4 +232,4 @@ Demo identity selection and unverified contact matching simulate trust; producti
 
 Client open times are clamped between invitation creation and receipt, with a five-minute claim skew tolerance. Skew within those bounds and late-ingested opens can still change window membership/results. Cross-device journeys without a shared journey ID remain uncorrelated. The full-history open-unit scan exceeds the 1.5-second statement deadline at roughly 2.5M events, returning a retryable 500 on `/api/metrics/product`; windowed pruning or an ingestion-maintained unit table remains follow-up work.
 
-Local synthetic results do not establish production-month SLOs, real-user 30%/25% target attainment, or causal lift. Multi-node exact timing, automatic crashed-gateway lifetime reconciliation, production monitoring/deployment and a properly powered activity-clustered experiment remain outstanding. Safe cancellation/capacity release, waitlists, reminders and participant communication belong to the next release. Attendance is explicitly unmeasured; completion/attendance and optional polish are outside this handoff.
+Local synthetic results do not establish production-month SLOs, real-user 30%/25% target attainment, or causal lift. Multi-node exact timing, automatic crashed-gateway lifetime reconciliation, production monitoring/deployment and a properly powered activity-clustered experiment remain outstanding. Safe cancellation/capacity release, waitlists, reminders and participant communication belong to the next release. Attendance is explicitly unmeasured; completion/attendance remain outside this handoff; issue #27 adds the reference-informed visual refinement.

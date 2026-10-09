@@ -145,9 +145,9 @@ test('foreground return gives the healthy socket a fresh watchdog window', async
 
 test('shared live availability retains the actor-specific invitation policy from HTTP', async () => {
   const socket=setup();
-  await screen.findByText('This activity is assigned to the invitation experience.');
+  await screen.findByText('Good plans are better together.');
   act(()=>{socket.open();socket.snapshot({...activity,version:2,invitePolicy:{creationEnabled:true,allowed:false,reason:'host_or_booker_required'}});});
-  expect(screen.getByText('This activity is assigned to the invitation experience.')).toBeTruthy();
+  expect(screen.getByText('Good plans are better together.')).toBeTruthy();
   expect(screen.queryByText('Book a seat or host this activity to create invitations.')).toBeNull();
 });
 

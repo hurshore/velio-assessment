@@ -33,6 +33,7 @@ test('explains public trust and remaining seats before creating, then offers a c
   const writeText = vi.fn().mockResolvedValue(undefined);
   vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
   const fetch = setup(async () => ok(invite, 201));
+  fireEvent.click(await screen.findByRole('button', { name: /Share a public link/ }));
   const button = await screen.findByRole('button', { name: 'Create public link' });
   const panel = within(screen.getByRole('group', { name: 'Public share link' }));
   expect(panel.getByText(/3 of 4 seats remaining/)).toBeTruthy();
@@ -55,6 +56,7 @@ test('uses the device share sheet when available and keeps the link if sharing i
   const share = vi.fn().mockRejectedValue(new DOMException('Cancelled', 'AbortError'));
   vi.stubGlobal('navigator', { ...navigator, share });
   setup(async () => ok(invite, 201));
+  fireEvent.click(await screen.findByRole('button', { name: /Share a public link/ }));
   fireEvent.click(await screen.findByRole('button', { name: 'Create public link' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Share link' }));
   await waitFor(() => expect(share).toHaveBeenCalledWith(expect.objectContaining({ url: `${window.location.origin}/invite/ABCD2345EFGH` })));
@@ -64,6 +66,7 @@ test('uses the device share sheet when available and keeps the link if sharing i
 
 test('a rejected creation explains the reason and keeps the panel usable', async () => {
   setup(async () => new Response(JSON.stringify({ error: { code: 'INVITE_CREATION_UNAVAILABLE', message: 'New invitations are unavailable for this activity or identity.', retryable: false }, requestId: 'ui-test' }), { status: 403 }));
+  fireEvent.click(await screen.findByRole('button', { name: /Share a public link/ }));
   fireEvent.click(await screen.findByRole('button', { name: 'Create public link' }));
   expect((await screen.findByRole('alert')).textContent).toMatch(/New invitations are unavailable/);
   expect(screen.getByRole('button', { name: 'Create public link' }).hasAttribute('disabled')).toBe(false);
@@ -71,6 +74,7 @@ test('a rejected creation explains the reason and keeps the panel usable', async
 
 test('a full activity explains why it cannot be shared', async () => {
   setup(async () => ok(invite, 201), { ...activity, confirmedCount: 4, remainingSeats: 0 });
+  fireEvent.click(await screen.findByRole('button', { name: /Share a public link/ }));
   expect(await screen.findByText(/No seats remain, so there is nothing to share/)).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Create public link' }).hasAttribute('disabled')).toBe(true);
 });
@@ -85,6 +89,7 @@ test('a created link survives refreshing details but is cleared when the actor c
   vi.stubGlobal('fetch', fetch);
   const delivery = new ViewDelivery();
   const view = render(<ActivityDetails id={activity.id} actorId={actorId} journeyId={journeyId} close={() => {}} delivery={delivery} />);
+  fireEvent.click(await screen.findByRole('button', { name: /Share a public link/ }));
   fireEvent.click(await screen.findByRole('button', { name: 'Create public link' }));
   const link = `${window.location.origin}/invite/ABCD2345EFGH`;
   await screen.findByDisplayValue(link);
@@ -98,6 +103,7 @@ test('a created link survives refreshing details but is cleared when the actor c
 test('copy feedback is announced from a mounted status region and cleared when a new link is created', async () => {
   vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
   setup(async () => ok(invite, 201));
+  fireEvent.click(await screen.findByRole('button', { name: /Share a public link/ }));
   fireEvent.click(await screen.findByRole('button', { name: 'Create public link' }));
   const panel = screen.getByRole('group', { name: 'Public share link' });
   await within(panel).findByDisplayValue(`${window.location.origin}/invite/ABCD2345EFGH`);
@@ -111,7 +117,50 @@ test('copy feedback is announced from a mounted status region and cleared when a
 
 test('a created invite missing contract fields is reported instead of shown', async () => {
   setup(async () => ok({ ...invite, planId: undefined }, 201));
+  fireEvent.click(await screen.findByRole('button', { name: /Share a public link/ }));
   fireEvent.click(await screen.findByRole('button', { name: 'Create public link' }));
   expect((await screen.findByRole('alert')).textContent).toMatch(/unexpected invitation/);
   expect(screen.queryByText('ABCD-2345-EFGH')).toBeNull();
 });
+
+test('a public request stays pending through refresh and issued links survive reload only for their owner', async () => {
+  let finish!: (response: Response) => void;
+  setup(() => new Promise(resolve => { finish = resolve; }));
+  fireEvent.click(await screen.findByRole('button', { name: /Share a public link/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Create public link' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh details' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh details' }).hasAttribute('disabled')).toBe(false));
+  expect(screen.getByRole('button', { name: 'Creating link…' }).hasAttribute('disabled')).toBe(true);
+  finish(ok(invite));
+  const link = `${window.location.origin}/invite/${invite.code}`;
+  await screen.findByDisplayValue(link);
+  cleanup();
+  setup(async () => { throw new Error('Reload must not create another link'); });
+  fireEvent.click(await screen.findByRole('button', { name: /Share a public link/ }));
+  expect(await screen.findByDisplayValue(link)).toBeTruthy();
+});
+
+for (const outcome of ['pending', 'lost response']) {
+  test(`a public ${outcome} warning survives repeated reloads without reissuing`, async () => {
+    const create = vi.fn(() => outcome === 'pending' ? new Promise<Response>(() => {}) : Promise.reject(new TypeError('Connection lost')));
+    setup(create);
+    fireEvent.click(await screen.findByRole('button', { name: /Share a public link/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create public link' }));
+    if (outcome === 'lost response') await screen.findByRole('alert');
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    cleanup();
+    for (let reload = 0; reload < 3; reload += 1) {
+      const fetch = setup(async () => ok(invite, 201));
+      fireEvent.click(await screen.findByRole('button', { name: /Share a public link/ }));
+      expect(await screen.findByText(/previous link request may have completed/)).toBeTruthy();
+      expect(fetch.mock.calls.filter(([url]) => String(url).endsWith('/invites'))).toHaveLength(0);
+      if (reload === 2) {
+        fireEvent.click(screen.getByRole('button', { name: 'Create public link' }));
+        await screen.findByDisplayValue(`${window.location.origin}/invite/${invite.code}`);
+        expect(screen.getByText(/previous link request may have completed/)).toBeTruthy();
+        expect(fetch.mock.calls.filter(([url]) => String(url).endsWith('/invites'))).toHaveLength(1);
+      }
+      cleanup();
+    }
+  });
+}
