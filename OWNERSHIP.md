@@ -4,7 +4,7 @@
 
 ## Diagnose
 
-Validate the 11% using PLANS.md §4.2: deduplicated (invitation, guest journey) opens, completed claim windows (the earlier of 24 hours and activity start), correct attribution, and exclusions for recovery, bots and synthetic traffic. Compare headline conversion, including unavailable invitations, with eligible-open conversion. Split by availability, platform, invitation type, new/returning and funnel stage; anonymous at first open does not necessarily mean new. Observe mobile journeys and ask guests who stopped why. Compare invitation types on volumes and participation alongside rates.
+Validate the 11% using PLANS.md §4.2: deduplicated (invitation, guest journey) opens, mature claim windows (the earlier of 24 hours and activity start), correct attribution, and exclusions for recovery, bots and synthetic traffic. Compare headline conversion, including unavailable invitations, with eligible-open conversion. Split by availability, platform, invitation type, new/returning and funnel stage; anonymous at first open does not necessarily mean new. Observe mobile journeys and ask guests who stopped why. Compare invitation types on volumes and participation alongside rates.
 
 ## Improve, ranked by expected impact and effort
 
@@ -18,7 +18,7 @@ Priorities are provisional; investigate these hypotheses before choosing the fir
 | 4 | **Public-link uncertainty** (invitation type): test inviter messages and clearer commitment copy; preserve the public-link trust distinction. | Medium / low-medium |
 | 5 | **Claim rejection** (claim stage, type): improve contact and identity guidance and last-seat outcomes; repair concentrated technical failures. | High for affected guests / low-medium |
 
-I would record entry method, handoff and loading outcomes, identity-step failures and invitation-flow assignment; SQL cannot recover unrecorded steps. Funnel stages, headline-conversion segments and longer experiments need additional SQL: #10's metrics segment invitation type, platform and new/returning over eligible opens only, and report at most seven days. Count alternative-activity bookings separately from original-invitation conversion.
+I would record entry method (app link or typed code), handoff and loading outcomes, identity-step failures and invitation-flow assignment; SQL cannot recover unrecorded steps. Funnel stages, headline-conversion segments and longer experiments need additional SQL: #10's metrics segment invitation type, platform and new/returning over eligible opens only, and report at most seven days. Count alternative-activity bookings separately from original-invitation conversion.
 
 ## Prove it
 
