@@ -746,7 +746,7 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
           _uncertain = session.hasPendingClaim(actor, preview.code);
           _message =
               '${failureMessage(error)}\nNo claim was submitted on this attempt.'
-              '${_uncertain ? ' Your earlier booking is still saved; check your confirmation or retry it.' : ''}';
+              '${_uncertain ? ' Your earlier booking attempt is still saved; check your confirmation or retry it.' : ''}';
         });
       } else if (error is ApiFailure &&
           !error.retryable &&
@@ -782,7 +782,7 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
         setState(() {
           _uncertain = true;
           _message =
-              '${failureMessage(error)}\nChecking your confirmation. We could not confirm the response; your original booking is saved for recovery.';
+              '${failureMessage(error)}\nChecking your confirmation. We could not confirm the response; your original booking attempt is saved for recovery.';
         });
         try {
           await _lookup(preview, actor);
@@ -991,11 +991,11 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
           ),
         ),
         if (confirmation.telemetryDegraded)
-          const Text('Your seat is confirmed; server tracking is delayed.'),
+          const Text('Your seat is confirmed; some diagnostics are delayed.'),
       ],
       if (_stale)
         const Text(
-          'Saved/offline details. Availability may have changed; reconnect and refresh before a new claim. Offline claims are not queued.',
+          'Saved/offline details. Availability may have changed. Reconnect and refresh before claiming a seat. New seats can only be claimed while online.',
         ),
       if (_savedAt != null && _stale) Text('Saved at $_savedAt'),
       Text(
