@@ -1,0 +1,325 @@
+{
+  "verifiedAt": "2026-10-08T23:56:27.988Z",
+  "simulator": "iPhone 17 / iOS 26.2",
+  "eventReplayAccepted": false,
+  "successful": {
+    "journey": "2f47f17f-7f0d-4312-83e6-332e1a483e32",
+    "activity": "3a2773af-a1ff-4f57-9c08-b06e08b9a226",
+    "events": [
+      {
+        "name": "activity_viewed",
+        "source": "client",
+        "platform": "mobile",
+        "actorId": "dde9322e-f34e-4682-8d07-9d9dc456dd1f",
+        "rail": null,
+        "generation": "1",
+        "recovery": null,
+        "assignment": {
+          "variant": "treatment",
+          "version": "1",
+          "assignedAt": "2026-10-08T23:56:02.070446+00:00",
+          "experiment": "group_invites_v1",
+          "treatmentPercent": 50
+        },
+        "testMarked": true,
+        "count": 1
+      },
+      {
+        "name": "activity_viewed",
+        "source": "client",
+        "platform": "mobile",
+        "actorId": null,
+        "rail": null,
+        "generation": null,
+        "recovery": null,
+        "assignment": {
+          "variant": "treatment",
+          "version": "1",
+          "assignedAt": "2026-10-08T23:56:02.070446+00:00",
+          "experiment": "group_invites_v1",
+          "treatmentPercent": 50
+        },
+        "testMarked": true,
+        "count": 1
+      },
+      {
+        "name": "booking_attempted",
+        "source": "server",
+        "platform": "mobile",
+        "actorId": "dde9322e-f34e-4682-8d07-9d9dc456dd1f",
+        "rail": "public",
+        "generation": "1",
+        "recovery": null,
+        "assignment": {
+          "variant": "treatment",
+          "version": "1",
+          "assignedAt": "2026-10-08T23:56:02.070446+00:00",
+          "experiment": "group_invites_v1",
+          "treatmentPercent": 50
+        },
+        "testMarked": true,
+        "count": 1
+      },
+      {
+        "name": "booking_request_outcome",
+        "source": "server",
+        "platform": "mobile",
+        "actorId": "dde9322e-f34e-4682-8d07-9d9dc456dd1f",
+        "rail": "public",
+        "generation": "1",
+        "recovery": null,
+        "assignment": {
+          "variant": "treatment",
+          "version": "1",
+          "assignedAt": "2026-10-08T23:56:02.070446+00:00",
+          "experiment": "group_invites_v1",
+          "treatmentPercent": 50
+        },
+        "testMarked": true,
+        "count": 1
+      },
+      {
+        "name": "booking_succeeded",
+        "source": "server",
+        "platform": "mobile",
+        "actorId": "dde9322e-f34e-4682-8d07-9d9dc456dd1f",
+        "rail": "public",
+        "generation": "1",
+        "recovery": null,
+        "assignment": {
+          "variant": "treatment",
+          "version": "1",
+          "assignedAt": "2026-10-08T23:56:02.070446+00:00",
+          "experiment": "group_invites_v1",
+          "treatmentPercent": 50
+        },
+        "testMarked": true,
+        "count": 1
+      },
+      {
+        "name": "identity_created",
+        "source": "server",
+        "platform": "mobile",
+        "actorId": "dde9322e-f34e-4682-8d07-9d9dc456dd1f",
+        "rail": "public",
+        "generation": "1",
+        "recovery": null,
+        "assignment": {
+          "variant": "treatment",
+          "version": "1",
+          "assignedAt": "2026-10-08T23:56:02.070446+00:00",
+          "experiment": "group_invites_v1",
+          "treatmentPercent": 50
+        },
+        "testMarked": true,
+        "count": 1
+      },
+      {
+        "name": "invite_claim_attempted",
+        "source": "server",
+        "platform": "mobile",
+        "actorId": "dde9322e-f34e-4682-8d07-9d9dc456dd1f",
+        "rail": "public",
+        "generation": "1",
+        "recovery": null,
+        "assignment": {
+          "variant": "treatment",
+          "version": "1",
+          "assignedAt": "2026-10-08T23:56:02.070446+00:00",
+          "experiment": "group_invites_v1",
+          "treatmentPercent": 50
+        },
+        "testMarked": true,
+        "count": 1
+      },
+      {
+        "name": "invite_opened",
+        "source": "client",
+        "platform": "mobile",
+        "actorId": null,
+        "rail": "public",
+        "generation": null,
+        "recovery": "false",
+        "assignment": {
+          "variant": "treatment",
+          "version": "1",
+          "assignedAt": "2026-10-08T23:56:02.070446+00:00",
+          "experiment": "group_invites_v1",
+          "treatmentPercent": 50
+        },
+        "testMarked": true,
+        "count": 1
+      },
+      {
+        "name": "invite_opened",
+        "source": "client",
+        "platform": "mobile",
+        "actorId": "dde9322e-f34e-4682-8d07-9d9dc456dd1f",
+        "rail": "public",
+        "generation": "1",
+        "recovery": "true",
+        "assignment": {
+          "variant": "treatment",
+          "version": "1",
+          "assignedAt": "2026-10-08T23:56:02.070446+00:00",
+          "experiment": "group_invites_v1",
+          "treatmentPercent": 50
+        },
+        "testMarked": true,
+        "count": 1
+      },
+      {
+        "name": "spot_claimed",
+        "source": "server",
+        "platform": "mobile",
+        "actorId": "dde9322e-f34e-4682-8d07-9d9dc456dd1f",
+        "rail": "public",
+        "generation": "1",
+        "recovery": null,
+        "assignment": {
+          "variant": "treatment",
+          "version": "1",
+          "assignedAt": "2026-10-08T23:56:02.070446+00:00",
+          "experiment": "group_invites_v1",
+          "treatmentPercent": 50
+        },
+        "testMarked": true,
+        "count": 1
+      }
+    ],
+    "bookings": [
+      {
+        "id": "aa330cd8-9315-490b-9087-b83d9f3a0212",
+        "actorId": "dde9322e-f34e-4682-8d07-9d9dc456dd1f",
+        "capacity": 1,
+        "confirmedCount": 1,
+        "rail": "public",
+        "redemptions": 1
+      }
+    ]
+  },
+  "losing": {
+    "journey": "3cb6b7d5-4909-4356-b3d5-0486dc47b167",
+    "activity": "02e16e0d-cf50-46d2-bfa1-4489f8e1a30a",
+    "events": [
+      {
+        "name": "activity_viewed",
+        "source": "client",
+        "platform": "mobile",
+        "actorId": "a9d5f211-a9f1-4b6f-b84f-4c563d4bad3a",
+        "rail": null,
+        "generation": "0",
+        "recovery": null,
+        "assignment": {
+          "variant": "treatment",
+          "version": "1",
+          "assignedAt": "2026-10-08T23:56:06.292044+00:00",
+          "experiment": "group_invites_v1",
+          "treatmentPercent": 50
+        },
+        "testMarked": true,
+        "count": 2
+      },
+      {
+        "name": "booking_attempted",
+        "source": "server",
+        "platform": "mobile",
+        "actorId": "a9d5f211-a9f1-4b6f-b84f-4c563d4bad3a",
+        "rail": "public",
+        "generation": "0",
+        "recovery": null,
+        "assignment": {
+          "variant": "treatment",
+          "version": "1",
+          "assignedAt": "2026-10-08T23:56:06.292044+00:00",
+          "experiment": "group_invites_v1",
+          "treatmentPercent": 50
+        },
+        "testMarked": true,
+        "count": 1
+      },
+      {
+        "name": "booking_request_outcome",
+        "source": "server",
+        "platform": "mobile",
+        "actorId": "a9d5f211-a9f1-4b6f-b84f-4c563d4bad3a",
+        "rail": "public",
+        "generation": "0",
+        "recovery": null,
+        "assignment": {
+          "variant": "treatment",
+          "version": "1",
+          "assignedAt": "2026-10-08T23:56:06.292044+00:00",
+          "experiment": "group_invites_v1",
+          "treatmentPercent": 50
+        },
+        "testMarked": true,
+        "count": 1
+      },
+      {
+        "name": "booking_sold_out",
+        "source": "server",
+        "platform": "mobile",
+        "actorId": "a9d5f211-a9f1-4b6f-b84f-4c563d4bad3a",
+        "rail": "public",
+        "generation": "0",
+        "recovery": null,
+        "assignment": {
+          "variant": "treatment",
+          "version": "1",
+          "assignedAt": "2026-10-08T23:56:06.292044+00:00",
+          "experiment": "group_invites_v1",
+          "treatmentPercent": 50
+        },
+        "testMarked": true,
+        "count": 1
+      },
+      {
+        "name": "invite_claim_attempted",
+        "source": "server",
+        "platform": "mobile",
+        "actorId": "a9d5f211-a9f1-4b6f-b84f-4c563d4bad3a",
+        "rail": "public",
+        "generation": "0",
+        "recovery": null,
+        "assignment": {
+          "variant": "treatment",
+          "version": "1",
+          "assignedAt": "2026-10-08T23:56:06.292044+00:00",
+          "experiment": "group_invites_v1",
+          "treatmentPercent": 50
+        },
+        "testMarked": true,
+        "count": 1
+      },
+      {
+        "name": "invite_opened",
+        "source": "client",
+        "platform": "mobile",
+        "actorId": "a9d5f211-a9f1-4b6f-b84f-4c563d4bad3a",
+        "rail": "public",
+        "generation": "0",
+        "recovery": "false",
+        "assignment": {
+          "variant": "treatment",
+          "version": "1",
+          "assignedAt": "2026-10-08T23:56:06.292044+00:00",
+          "experiment": "group_invites_v1",
+          "treatmentPercent": 50
+        },
+        "testMarked": true,
+        "count": 2
+      }
+    ],
+    "bookings": [
+      {
+        "id": "efd5e607-85d0-4d3a-85bd-28a31336c105",
+        "actorId": "30174a80-e68a-4893-9d9b-d5591a501205",
+        "capacity": 1,
+        "confirmedCount": 1,
+        "rail": null,
+        "redemptions": 0
+      }
+    ]
+  }
+}

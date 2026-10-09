@@ -34,7 +34,7 @@ void main() {
         200,
       ),
     );
-    await tester.pumpWidget(VelioApp(client: client));
+    await tester.pumpWidget(VelioApp(client: client, showConnection: true));
     expect(find.text('Checking API connection…'), findsOneWidget);
     await tester.pumpAndSettle();
     expect(find.text('API connected'), findsOneWidget);
@@ -55,7 +55,7 @@ void main() {
         200,
       );
     });
-    await tester.pumpWidget(VelioApp(client: client));
+    await tester.pumpWidget(VelioApp(client: client, showConnection: true));
     await tester.pumpAndSettle();
     expect(
       find.text(
@@ -80,7 +80,7 @@ void main() {
         503,
       ),
     );
-    await tester.pumpWidget(VelioApp(client: client));
+    await tester.pumpWidget(VelioApp(client: client, showConnection: true));
     await tester.pumpAndSettle();
     expect(
       find.text(
@@ -105,7 +105,7 @@ void main() {
           fixture['status'] as int,
         ),
       );
-      await tester.pumpWidget(VelioApp(client: client));
+      await tester.pumpWidget(VelioApp(client: client, showConnection: true));
       await tester.pumpAndSettle();
       expect(find.text(fixture['message'] as String), findsOneWidget);
       expect(find.text('API connected'), findsNothing);
@@ -125,7 +125,7 @@ void main() {
       if (calls == 1) throw http.ClientException('First request failed');
       return pending.future;
     });
-    await tester.pumpWidget(VelioApp(client: client));
+    await tester.pumpWidget(VelioApp(client: client, showConnection: true));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Retry connection'));
     await tester.tap(find.text('Retry connection'));
@@ -155,7 +155,7 @@ void main() {
         200,
       );
     });
-    await tester.pumpWidget(VelioApp(client: client));
+    await tester.pumpWidget(VelioApp(client: client, showConnection: true));
     await tester.pump();
     await tester.pump(const Duration(seconds: 6));
     await tester.pumpAndSettle();
@@ -186,7 +186,7 @@ void main() {
       final client = MockClient(
         (request) async => http.Response('<html>Proxy failed</html>', 502),
       );
-      await tester.pumpWidget(VelioApp(client: client));
+      await tester.pumpWidget(VelioApp(client: client, showConnection: true));
       await tester.pumpAndSettle();
       expect(
         find.text('The API returned an unexpected response. Please retry.'),

@@ -1,5 +1,5 @@
 name: velio_mobile
-description: Velio guest app foundation.
+description: Velio public invitation guest app.
 publish_to: none
 version: 0.1.0+1
 environment:
@@ -9,6 +9,10 @@ dependencies:
   flutter:
     sdk: flutter
   http: 1.6.0
+  app_links: 7.2.2
+  path_provider: 2.1.6
+  timezone: 0.11.1
+  intl: 0.20.3
 dev_dependencies:
   flutter_test:
     sdk: flutter
