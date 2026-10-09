@@ -56,6 +56,9 @@ test('failed exposure delivery preserves the shown activity and retries the orig
   render(<><ActivityDetails id={activity.id} actorId="" journeyId="44444444-4444-4444-8444-444444444444" close={() => {}} delivery={delivery} /><ViewDeliveryStatus delivery={delivery} /></>);
   await screen.findByText(/Exposure unavailable/);
   expect(screen.getByText('Good plans are better together.')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Retry view tracking' }).closest('details')?.open).toBe(false);
+  fireEvent.click(screen.getByText(/Reviewer diagnostics/, { selector: 'summary' }));
+  expect(screen.getByRole('button', { name: 'Retry view tracking' }).closest('details')?.open).toBe(true);
   fireEvent.click(screen.getByRole('button', { name: 'Retry view tracking' }));
   await waitFor(() => expect(events.filter(event => event.name === 'experiment_exposed')).toHaveLength(2));
   const exposures = events.filter(event => event.name === 'experiment_exposed');

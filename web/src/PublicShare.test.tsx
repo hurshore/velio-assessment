@@ -123,7 +123,6 @@ test('a created invite missing contract fields is reported instead of shown', as
   expect(screen.queryByText('ABCD-2345-EFGH')).toBeNull();
 });
 
-
 test('a public request stays pending through refresh and issued links survive reload only for their owner', async () => {
   let finish!: (response: Response) => void;
   setup(() => new Promise(resolve => { finish = resolve; }));
@@ -140,3 +139,28 @@ test('a public request stays pending through refresh and issued links survive re
   fireEvent.click(await screen.findByRole('button', { name: /Share a public link/ }));
   expect(await screen.findByDisplayValue(link)).toBeTruthy();
 });
+
+for (const outcome of ['pending', 'lost response']) {
+  test(`a public ${outcome} warning survives repeated reloads without reissuing`, async () => {
+    const create = vi.fn(() => outcome === 'pending' ? new Promise<Response>(() => {}) : Promise.reject(new TypeError('Connection lost')));
+    setup(create);
+    fireEvent.click(await screen.findByRole('button', { name: /Share a public link/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create public link' }));
+    if (outcome === 'lost response') await screen.findByRole('alert');
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    cleanup();
+    for (let reload = 0; reload < 3; reload += 1) {
+      const fetch = setup(async () => ok(invite, 201));
+      fireEvent.click(await screen.findByRole('button', { name: /Share a public link/ }));
+      expect(await screen.findByText(/previous link request may have completed/)).toBeTruthy();
+      expect(fetch.mock.calls.filter(([url]) => String(url).endsWith('/invites'))).toHaveLength(0);
+      if (reload === 2) {
+        fireEvent.click(screen.getByRole('button', { name: 'Create public link' }));
+        await screen.findByDisplayValue(`${window.location.origin}/invite/${invite.code}`);
+        expect(screen.getByText(/previous link request may have completed/)).toBeTruthy();
+        expect(fetch.mock.calls.filter(([url]) => String(url).endsWith('/invites'))).toHaveLength(1);
+      }
+      cleanup();
+    }
+  });
+}

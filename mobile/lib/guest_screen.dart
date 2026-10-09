@@ -746,7 +746,7 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
           _uncertain = session.hasPendingClaim(actor, preview.code);
           _message =
               '${failureMessage(error)}\nNo claim was submitted on this attempt.'
-              '${_uncertain ? ' Your earlier pending request is still saved; check/retry confirmation.' : ''}';
+              '${_uncertain ? ' Your earlier booking is still saved; check your confirmation or retry it.' : ''}';
         });
       } else if (error is ApiFailure &&
           !error.retryable &&
@@ -782,7 +782,7 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
         setState(() {
           _uncertain = true;
           _message =
-              '${failureMessage(error)}\nChecking your confirmation. The claim response was uncertain; your request key is saved.';
+              '${failureMessage(error)}\nChecking your confirmation. We could not confirm the response; your original booking is saved for recovery.';
         });
         try {
           await _lookup(preview, actor);
@@ -790,7 +790,7 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
           if (mounted) {
             setState(
               () => _message =
-                  '${failureMessage(error)}\nConfirmation is still uncertain. Check/retry with your saved request.',
+                  '${failureMessage(error)}\nYour confirmation is still unresolved. Check again or retry your original booking.',
             );
           }
         }
@@ -999,7 +999,7 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
         ),
       if (_savedAt != null && _stale) Text('Saved at $_savedAt'),
       Text(
-        _liveReady ? 'Live availability connected.' : 'Live availability disconnected or refreshing. New claims wait for a fresh snapshot.',
+        _liveReady ? 'Live availability connected.' : 'Live availability disconnected or refreshing. Reconnect and wait for availability to update before claiming a new seat.',
       ),
       Text(
         '${availability.remainingSeats} of ${availability.capacity} seats open at last check · refresh for current availability',

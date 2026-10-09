@@ -161,7 +161,6 @@ test('a response that arrives after switching identity away and back does not ap
   expect(within(panel()).getByRole('status').textContent).toMatch(/previous vouch request may have completed/);
 });
 
-
 test('reload restores a vouch draft and issued link only for its actor and activity', async () => {
   setup(async () => ok(vouch, 201));
   fireEvent.click(await screen.findByRole('button', { name: /Vouch for a contact/ }));
@@ -180,3 +179,31 @@ test('reload restores a vouch draft and issued link only for its actor and activ
   expect(screen.queryByDisplayValue('tunde@example.com')).toBeNull();
   expect(screen.queryByDisplayValue(`${window.location.origin}/invite/VCHR2345EFGH`)).toBeNull();
 });
+
+for (const outcome of ['pending', 'lost response']) {
+  test(`a vouch ${outcome} warning survives repeated reloads without reissuing`, async () => {
+    const create = vi.fn(() => outcome === 'pending' ? new Promise<Response>(() => {}) : Promise.reject(new TypeError('Connection lost')));
+    setup(create);
+    fireEvent.click(await screen.findByRole('button', { name: /Vouch for a contact/ }));
+    fireEvent.change(screen.getByLabelText(/Contact's email or phone/), { target: { value: 'tunde@example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create vouch' }));
+    if (outcome === 'lost response') await screen.findByRole('alert');
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    cleanup();
+    for (let reload = 0; reload < 3; reload += 1) {
+      const fetch = setup(async () => ok(vouch, 201));
+      fireEvent.click(await screen.findByRole('button', { name: /Vouch for a contact/ }));
+      expect(await screen.findByText(/previous vouch request may have completed/)).toBeTruthy();
+      expect(fetch.mock.calls.filter(([url]) => String(url).endsWith('/invites'))).toHaveLength(0);
+      if (reload === 2) {
+        fireEvent.change(screen.getByLabelText(/Contact's email or phone/), { target: { value: ' Tunde@Example.com ' } });
+        expect(screen.getByText(/previous vouch request may have completed/)).toBeTruthy();
+        fireEvent.click(screen.getByRole('button', { name: 'Create vouch' }));
+        await screen.findByDisplayValue(`${window.location.origin}/invite/${vouch.code}`);
+        expect(screen.getByText(/previous vouch request may have completed/)).toBeTruthy();
+        expect(fetch.mock.calls.filter(([url]) => String(url).endsWith('/invites'))).toHaveLength(1);
+      }
+      cleanup();
+    }
+  });
+}

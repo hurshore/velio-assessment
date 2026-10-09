@@ -368,6 +368,8 @@ Final verification (#12), 9 October 2026: the live report and operational summar
 
 | 9 October 2026 | #27 uses consistent semantic colors and rounded native surfaces. | Owner visual review refines the wordmark to a small period-sized mint dot on both platforms and adds a visible rounded outline to native disclosures in both collapsed and expanded states. | The larger web dot and black native dot diverged; the borderless booking reference looked unlike the surrounding controls. Identity selection also uses a 16 px gap below its heading and 12 px between choices so outlined buttons read as separate items. This is presentation only; booking recovery and disclosure contents remain unchanged. |
 
+| 9 October 2026 | #27 preserves actor-scoped invitations and keeps diagnostics secondary. | PR review separates unresolved invitation outcomes from active loading, retains uncertainty across repeated reloads, places host/guest tracking inside accessible diagnostics with an attention indicator, and simplifies recovery wording. Final demo captures use a separate database with readable synthetic identities/activities. | A restored pending marker was being overwritten after the first reload. Loading completion is not evidence of a known server outcome; no automatic invitation reissue is added. Tracking owners, booking keys, event IDs, live ACKs and actor/activity boundaries stay authoritative. |
+
 ## Reference checks
 
 - [Assessment brief](https://app.notion.com/p/velioapp/Velio-Engineering-Assessment-3f26935bd88981dbaaceea8a2f28eb7b): requirements are based on the supplied document, not unverified assumptions about Velio's codebase.

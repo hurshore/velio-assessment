@@ -167,6 +167,10 @@ test('trying another code preserves a failed open and retries its original event
     return events.length === 1 ? Promise.reject(new TypeError('Network down')) : Promise.resolve(ok({ id: event.id, accepted: true }, 202));
   }));
   render(<App />);
+  await screen.findByText('· Tracking needs attention');
+  expect(screen.getByRole('button', { name: 'Retry view tracking' }).closest('details')?.open).toBe(false);
+  fireEvent.click(screen.getByText(/Reviewer diagnostics/, { selector: 'summary' }));
+  expect(screen.getByRole('button', { name: 'Retry view tracking' }).closest('details')?.open).toBe(true);
   await screen.findByRole('button', { name: 'Retry view tracking' });
   fireEvent.click(screen.getByRole('link', { name: 'Try another code' }));
   await screen.findByRole('heading', { name: 'Enter an invitation code' });

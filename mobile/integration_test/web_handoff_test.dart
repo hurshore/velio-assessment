@@ -70,7 +70,15 @@ void main() {
       await waitFor(tester, find.text('Create demo identity'));
       await tester.enterText(
         find.widgetWithText(TextField, 'Your display name'),
-        'Web handoff $rail guest',
+        (rail == 'vouch'
+            ? const String.fromEnvironment(
+                'HANDOFF_VOUCH_NAME',
+                defaultValue: 'Web handoff vouch guest',
+              )
+            : const String.fromEnvironment(
+                'HANDOFF_PUBLIC_NAME',
+                defaultValue: 'Web handoff public guest',
+              )),
       );
       if (rail == 'vouch') {
         await tester.enterText(

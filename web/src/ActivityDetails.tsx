@@ -83,7 +83,7 @@ function RenderedActivity({ activity, actorId, journeyId, delivery, refresh, sta
       <dt>Availability</dt><dd>{activity.remainingSeats} of {activity.capacity} seats remaining · {activity.confirmedCount} confirmed</dd>
       <dt>Status</dt><dd>{activity.status}</dd>
     </dl>
-    <p className="hint">Availability changes until your booking commits. A displayed seat is not reserved.</p>
+    <p className="hint">Availability changes until your seat is confirmed. A displayed seat is not reserved.</p>
     {activity.remainingSeats === 0 ? <p>This activity is full. Confirmed participants are shown below.</p> : null}
     <details className="diagnostics"><summary>Technical details</summary><p>Shared plan: {activity.planId}</p><time dateTime={activity.startsAt}>{activity.startsAt}</time></details>
 

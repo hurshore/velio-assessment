@@ -66,7 +66,7 @@ export function SeatBooking({ activity, actorId, journeyId, refresh, stale = fal
         setPhase('checking'); setError('Checking your confirmation after an uncertain response.');
         try {
           const result = await check();
-          if (active.current && !result.booking) setError('Your confirmation is unresolved. Check again or retry with the same request key.');
+          if (active.current && !result.booking) setError('Your confirmation is unresolved. Check again or retry your original booking.');
         } catch (lookupError) {
           if (active.current) { setPhase('uncertain'); setError(`Your confirmation is unresolved. ${message(lookupError)}`); }
         }
@@ -84,7 +84,7 @@ export function SeatBooking({ activity, actorId, journeyId, refresh, stale = fal
   const seats = Math.min(activity.remainingSeats, state?.availability.remainingSeats ?? activity.remainingSeats);
   const unavailable = activity.status !== 'scheduled' || Date.parse(activity.startsAt) <= Date.now() || seats === 0;
   return <section aria-label="Your booking" aria-live="polite">
-    {stale ? <p>Availability may be stale. Live recovery must finish before a new booking.</p> : null}
+    {stale ? <p>Availability may have changed. Reconnect and wait for availability to update before booking.</p> : null}
     {!actorId ? <p>Select a demo identity to book one seat.</p> : <>
       {phase === 'confirmed' && booking ? <>
         <p>Your seat is confirmed.</p>
@@ -94,9 +94,9 @@ export function SeatBooking({ activity, actorId, journeyId, refresh, stale = fal
         {phase === 'checking' ? <p role="status">Checking your confirmation…</p> : null}
         {unavailable && phase !== 'uncertain' ? <p>{seats === 0 ? 'This activity is sold out.' : 'This activity is no longer bookable.'}</p> : null}
         <button disabled={(stale && phase !== 'uncertain') || phase === 'pending' || phase === 'checking' || phase === 'lookup_failed' || (unavailable && phase !== 'uncertain') || phase === 'rejected'} onClick={() => void submit()}>
-          {phase === 'pending' ? 'Booking your seat…' : phase === 'uncertain' ? 'Retry same booking request' : 'Book one seat'}
+          {phase === 'pending' ? 'Booking your seat…' : phase === 'uncertain' ? 'Retry booking' : 'Book one seat'}
         </button>
-        {phase === 'lookup_failed' || phase === 'uncertain' || phase === 'rejected' ? <button onClick={() => void recover()}>{phase === 'lookup_failed' ? 'Retry confirmation lookup' : 'Check confirmation'}</button> : null}
+        {phase === 'lookup_failed' || phase === 'uncertain' || phase === 'rejected' ? <button onClick={() => void recover()}>{phase === 'lookup_failed' ? 'Check confirmation again' : 'Check confirmation'}</button> : null}
       </>}
       {error ? <ErrorNotice text={error} /> : null}
       {warning ? <p role="status">{warning}</p> : null}

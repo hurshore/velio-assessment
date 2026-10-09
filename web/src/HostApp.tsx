@@ -73,6 +73,6 @@ export function HostApp() {
     </section>
     </div>
     <ActivityBrowser delivery={delivery} journeyId={journeyId} actorId={identities.some(user => user.id === actorId) ? actorId : ''} setHosting={setHosting} requestIdentity={() => setIdentityOpen(true)} />
-    <details className="diagnostics"><summary>Demo guidance &amp; tracking</summary><p>Demo identities and contacts are unverified. Prices describe the commitment; no payment is collected.</p></details><ViewDeliveryStatus delivery={delivery} />
+    <ViewDeliveryStatus delivery={delivery} label="Demo guidance & tracking"><p>Demo identities and contacts are unverified. Prices describe the commitment; no payment is collected.</p></ViewDeliveryStatus>
   </>;
 }
