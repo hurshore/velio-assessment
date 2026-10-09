@@ -7,6 +7,11 @@ import pg from 'pg';
 import { createApp } from '../src/app.js';
 import { loadInviteConfig } from '../src/experiments.js';
 import { runMigrations } from '../src/migrations.js';
+import {
+  bookerInviteTarget, bookerMinMatureJourneys, inviteWindowHours, kWindowDays, maxIntegrityDetails, openClaimSkewToleranceMinutes,
+  openClaimTarget, openMinMatureJourneys, reliabilityMinResolvedIntents, reliabilityTarget,
+} from '../src/metric-policy.js';
+import { withReportSnapshot } from '../src/reporting.js';
 
 // Product-metric fixtures live directly in the database with fixed historical timestamps,
 // like the labelled seeds: the point is to verify the calculations, not the write paths.
@@ -46,8 +51,10 @@ async function fixtures() {
   await organicUser(host1, '2026-09-20T09:00:00Z', 'Metrics host');
   await activity(actR, host1, '2030-01-01T09:00:00Z', '2026-09-20T10:00:00Z');
   // Reliability intents: rA retries an eligible technical failure into a commit; rB/rC fail
-  // eligible/unknown; rD sold out and rE invalid are excluded from reliability; rF replays a
-  // committed result; rG commits exactly at the window start; rH commits exactly at the end.
+  // eligible/unknown; rD sold out and rE invalid are excluded from reliability; rF only replays
+  // an earlier result (not a new intent); rG commits exactly at the window start; rH commits
+  // exactly at the end. rD also has two unrelated technical failures whose activity never
+  // resolved: nothing correlates them, so each stays its own unknown intent.
   const rA = '11111111-0000-4000-8000-000000000011', rB = '11111111-0000-4000-8000-000000000012',
     rC = '11111111-0000-4000-8000-000000000013', rD = '11111111-0000-4000-8000-000000000014',
     rE = '11111111-0000-4000-8000-000000000015', rF = '11111111-0000-4000-8000-000000000016',
@@ -70,18 +77,18 @@ async function fixtures() {
     // A technical failure before any identity resolved still counts as its own unknown intent.
     { id: randomUUID(), name: 'booking_request_outcome', occurredAt: '2026-10-03T14:00:00Z', journeyId: journey('99'),
       context: { outcome: 'technical_error', eligibility: 'unknown', operation: 'book_activity', requestId: randomUUID() } },
+    unresolvedFailure(rD, '2026-10-03T15:00:00Z'),
+    unresolvedFailure(rD, '2026-10-03T16:00:00Z'),
   ]);
-  // Live delivery: rA's committed booking reached two foreground clients; one ACKed in 500ms
-  // and the other never did after its deadline passed.
-  const liveBooking = randomUUID(), liveEvent = randomUUID(), liveProcess = randomUUID();
-  await booking(liveBooking, actR, rA, '2026-10-02T10:00:30Z');
-  await owner.query(`INSERT INTO outbox_events (id,name,activity_id,booking_id,version,payload,created_at,origin_process_id)
-    VALUES ($1,'availability_updated',$2,$3,2,'{}',$4,$5)`, [liveEvent, actR, liveBooking, '2026-10-02T10:00:30Z', liveProcess]);
-  await owner.query(`INSERT INTO live_observations (event_id,process_id,timing,observed_at,started_clock,expected)
-    VALUES ($1,$2,'commit_observed','2026-10-02T10:00:30Z',0,2)`, [liveEvent, liveProcess]);
-  await owner.query(`INSERT INTO live_deliveries (event_id,process_id,connection_id,client_id,deadline,ack_at,sent_version,delay_ms)
-    VALUES ($1,$2,$3,$4,'2026-10-02T10:00:32Z','2026-10-02T10:00:30.5Z',2,500),
-           ($1,$2,$5,$6,'2026-10-02T10:00:32Z',NULL,2,NULL)`, [liveEvent, liveProcess, randomUUID(), randomUUID(), randomUUID(), randomUUID()]);
+  // Live delivery, written with the same shapes saveObservation produces:
+  // E1 (rA) reached two foreground clients: one ACK in 500ms, one never ACKed before its deadline.
+  // E2 (rB) committed with nobody subscribed: an observation with expected=0 and no deliveries.
+  // E3 (rC) is mixed: its origin gateway delivered to one client (ACK 1200ms); a second gateway
+  // observed it through recovery with no subscribers.
+  await liveBookingFixture(actR, rA, 2, '2026-10-02T10:00:30Z', [{ timing: 'commit_observed', deliveries: [500, null] }]);
+  await liveBookingFixture(actR, rB, 3, '2026-10-06T10:00:00Z', [{ timing: 'commit_observed', deliveries: [] }]);
+  await liveBookingFixture(actR, rC, 4, '2026-10-04T10:00:00Z', [
+    { timing: 'commit_observed', deliveries: [1200] }, { timing: 'pre_commit_proxy', deliveries: [] }]);
   // Integrity fixture: an owner write leaves two booking rows on a one-seat activity with a
   // zero counter. Its users book before the window, so windowed metrics never see the damage.
   const act9 = '22222222-0000-4000-8000-000000000090';
@@ -228,6 +235,93 @@ async function productFixtures() {
   // rows everywhere except the deliberate act9 violation.
   await owner.query(`UPDATE activities a SET confirmed_count = (SELECT count(*) FROM bookings b WHERE b.activity_id=a.id)
     WHERE id <> '22222222-0000-4000-8000-000000000090'`);
+  // 101 more activities whose counter claims a seat no booking row backs: with act9 that makes
+  // 102 violating activities, more than the 100-row detail cap.
+  // Fixed August timestamps keep them out of every reporting window used below.
+  const client = await owner.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`WITH created AS (
+      INSERT INTO activities (host_id,title,description,meeting_location,starts_at,timezone,capacity,confirmed_count,price_minor,currency,created_at)
+      SELECT $1,'Counter fixture','Mismatched counter','Fixture gate','2030-01-01T09:00:00Z','UTC',2,1,0,'NGN','2026-08-15T10:00:00Z'
+      FROM generate_series(1,101) RETURNING id) SELECT assign_invite_experiment(id,'integrity-cap',50) FROM created`, [host1]);
+    await client.query(`UPDATE experiment_assignments SET assigned_at='2026-08-15T10:00:00Z' WHERE version='integrity-cap'`);
+    await client.query('COMMIT');
+  } finally { client.release(); }
+  await timingFixtures();
+  await markerFixtures();
+}
+
+// Open timing (window 2026-09-10..09-17). Invite T is created 07:00 and expires 24h later;
+// T2 is created 16:00. Effective open = reported time clamped to [invite creation, receipt].
+//   K1 clock ahead 3s, fast claim before the (late) reported time        -> converts
+//   K2 clock ahead, open uploaded after the claim, claim 20s earlier     -> converts (5 min tolerance)
+//   K3 clock 4h behind, reported before the invite existed; claim 23.5h  -> converts (clamped to creation)
+//   K4 offline open uploaded 2h late, claim between occurrence and upload -> converts
+//   K5 claim 30 minutes before the open                                   -> does not convert
+//   K6 one journey opens T then T2 and claims through T2: (T,K6) does not convert, (T2,K6) does
+const timingFrom = '2026-09-10T00:00:00Z', timingTo = '2026-09-17T00:00:00Z';
+async function timingFixtures() {
+  const actT = '22222222-0000-4000-8000-000000000070';
+  await activity(actT, host1, '2030-01-01T09:00:00Z', '2026-09-01T10:00:00Z');
+  await invite(inviteId('70'), inviteCodeText('70'), actT, host1, 'host', 'public', '2026-09-10T07:00:00Z', '2026-09-11T07:00:00Z', 0, host1);
+  await invite(inviteId('71'), inviteCodeText('71'), actT, host1, 'host', 'public', '2026-09-10T16:00:00Z', '2026-09-11T16:00:00Z', 0, host1);
+  const opened = (suffix: string, inviteSuffix: string, occurredAt: string, receivedAt: string): EventFixture => ({
+    id: randomUUID(), name: 'invite_opened', occurredAt, receivedAt, source: 'client', platform: 'mobile',
+    journeyId: journey(suffix), inviteId: inviteId(inviteSuffix),
+    context: { rail: 'public', displayedState: 'valid', stateAtReceipt: 'valid', recovery: false } });
+  const claimed = (suffix: string, inviteSuffix: string, at: string): EventFixture => ({
+    id: randomUUID(), name: 'spot_claimed', occurredAt: at, platform: 'mobile', journeyId: journey(suffix), inviteId: inviteId(inviteSuffix),
+    context: { operation: 'claim_invite', rail: 'public', outcome: 'committed' } });
+  await recordEvents([
+    opened('71', '70', '2026-09-10T09:00:03Z', '2026-09-10T09:00:00.200Z'), claimed('71', '70', '2026-09-10T09:00:01Z'),
+    opened('72', '70', '2026-09-10T10:00:30Z', '2026-09-10T10:05:00Z'), claimed('72', '70', '2026-09-10T10:00:10Z'),
+    opened('73', '70', '2026-09-10T06:00:00Z', '2026-09-10T10:00:01Z'), claimed('73', '70', '2026-09-11T06:30:00Z'),
+    opened('74', '70', '2026-09-10T12:00:00Z', '2026-09-10T14:00:00Z'), claimed('74', '70', '2026-09-10T12:30:00Z'),
+    opened('75', '70', '2026-09-10T15:00:00Z', '2026-09-10T15:00:00Z'), claimed('75', '70', '2026-09-10T14:30:00Z'),
+    opened('76', '70', '2026-09-10T16:30:00Z', '2026-09-10T16:30:00Z'), opened('76', '71', '2026-09-10T16:40:00Z', '2026-09-10T16:40:00Z'),
+    claimed('76', '71', '2026-09-10T17:00:00Z'),
+  ]);
+}
+
+// Marker alignment (window 2026-10-20..10-27, after the main window so its users never join
+// the main cohort). These rows are unmarked unless noted, so includeTest=false sees them.
+//   Holdout: treatment HT3 has unmarked U1 and test-marked M1; control HC3 has only test-marked
+//   M2, so it keeps one activity with zero qualifying participants.
+//   K: unmarked host RH and test-marked host MP both hosted before the window; RH acquires N1
+//   and MP acquires N2 (left unmarked, as legacy data might be), which must not count.
+//   Opens: Q1 is an unmarked open claimed by a test-marked actor; Q2 is an unmarked open.
+const markerFrom = '2026-10-20T00:00:00Z', markerTo = '2026-10-27T00:00:00Z';
+async function markerFixtures() {
+  const rh = user('81'), mp = user('82'), u1 = user('83'), m1 = user('84'), m2 = user('85'), n1 = user('86'), n2 = user('87');
+  const hostedBefore = '22222222-0000-4000-8000-000000000080', mpHosted = '22222222-0000-4000-8000-000000000081';
+  const ht3 = '22222222-0000-4000-8000-000000000082', hc3 = '22222222-0000-4000-8000-000000000083';
+  await organicUser(rh, '2026-10-10T09:00:00Z', 'Real host', null, {});
+  await organicUser(mp, '2026-10-10T09:00:00Z', 'Marked host', null, { test: true });
+  for (const [id, label, markers] of [[u1, 'Real participant', {}], [m1, 'Marked participant', { test: true }], [m2, 'Marked control participant', { test: true }]] as const) {
+    await organicUser(id, '2026-10-10T09:00:00Z', label, null, markers);
+  }
+  await activity(hostedBefore, rh, '2030-01-01T09:00:00Z', '2026-10-15T10:00:00Z');
+  await activity(mpHosted, mp, '2030-01-01T09:00:00Z', '2026-10-15T10:00:00Z');
+  await activity(ht3, rh, '2030-01-01T09:00:00Z', '2026-10-21T10:00:00Z', 20, 'metrics-holdout-markers', 100);
+  await activity(hc3, rh, '2030-01-01T09:00:00Z', '2026-10-21T10:00:00Z', 20, 'metrics-holdout-markers', 0);
+  await booking(randomUUID(), ht3, u1, '2026-10-22T10:00:00Z');
+  await booking(randomUUID(), ht3, m1, '2026-10-22T10:00:00Z');
+  await booking(randomUUID(), hc3, m2, '2026-10-22T10:00:00Z');
+  await invite(inviteId('80'), inviteCodeText('80'), hostedBefore, rh, 'host', 'public', '2026-10-21T09:00:00Z', '2026-10-22T09:00:00Z', 0, rh);
+  await invite(inviteId('81'), inviteCodeText('81'), mpHosted, mp, 'host', 'public', '2026-10-21T09:00:00Z', '2026-10-22T09:00:00Z', 0, mp);
+  await invitedUser(n1, 'Real acquisition', '2026-10-21T10:00:00Z', inviteId('80'), rh, rh, 1, 'public', null, {});
+  await invitedUser(n2, 'Acquisition by marked parent', '2026-10-21T10:00:00Z', inviteId('81'), mp, mp, 1, 'public', null, {});
+  await recordEvents([
+    { id: randomUUID(), name: 'invite_opened', occurredAt: '2026-10-21T11:00:00Z', source: 'client', platform: 'web', journeyId: journey('81'),
+      inviteId: inviteId('80'), context: { rail: 'public', displayedState: 'valid', recovery: false }, markers: {} },
+    { id: randomUUID(), name: 'spot_claimed', occurredAt: '2026-10-21T11:30:00Z', journeyId: journey('81'), inviteId: inviteId('80'),
+      actorId: m1, context: { operation: 'claim_invite', rail: 'public', outcome: 'committed' }, markers: { test: true } },
+    { id: randomUUID(), name: 'invite_opened', occurredAt: '2026-10-21T12:00:00Z', source: 'client', platform: 'web', journeyId: journey('82'),
+      inviteId: inviteId('80'), context: { rail: 'public', displayedState: 'valid', recovery: false }, markers: {} },
+  ]);
+  await owner.query(`UPDATE activities a SET confirmed_count = (SELECT count(*) FROM bookings b WHERE b.activity_id=a.id)
+    WHERE id IN ($1,$2)`, [ht3, hc3]);
 }
 
 
@@ -247,17 +341,21 @@ async function product(query = `?from=${from}&to=${to}&includeTest=true`) {
   return { status: response.status, ...(await response.json()) };
 }
 
-// Every fixture is synthetic so product metrics stay empty unless includeTest=true.
-async function organicUser(id: string, createdAt: string, name: string, contact: string | null = null) {
-  await owner.query(`INSERT INTO users (id,display_name,contact,generation,acquisition_root_id,synthetic,created_at)
-    VALUES ($1,$2,$3,0,$1,true,$4) ON CONFLICT (id) DO NOTHING`, [id, name, contact, createdAt]);
+// Fixtures are synthetic unless markers say otherwise; only the marker-alignment window
+// (markerFixtures) passes explicit markers so includeTest=false has something to show.
+interface Markers { synthetic?: boolean; test?: boolean }
+const syntheticMarker: Markers = { synthetic: true };
+async function organicUser(id: string, createdAt: string, name: string, contact: string | null = null, markers: Markers = syntheticMarker) {
+  await owner.query(`INSERT INTO users (id,display_name,contact,generation,acquisition_root_id,synthetic,test,created_at)
+    VALUES ($1,$2,$3,0,$1,$5,$6,$4) ON CONFLICT (id) DO NOTHING`, [id, name, contact, createdAt, markers.synthetic ?? false, markers.test ?? false]);
   await owner.query(`INSERT INTO signup_attribution (user_id,generation,root_id,created_at)
     VALUES ($1,0,$1,$2) ON CONFLICT (user_id) DO NOTHING`, [id, createdAt]);
 }
-async function invitedUser(id: string, name: string, createdAt: string, inviteIdText: string, inviterId: string, inviterRootId: string, generation: number, rail: string, contact: string | null = null) {
-  await owner.query(`INSERT INTO users (id,display_name,contact,generation,acquisition_parent_id,acquisition_root_id,acquisition_invite_id,acquisition_rail,synthetic,created_at)
-    VALUES ($1,$2,$9,$3,$4,$5,$6,$7,true,$8) ON CONFLICT (id) DO NOTHING`,
-    [id, name, generation, inviterId, inviterRootId, inviteIdText, rail, createdAt, contact]);
+async function invitedUser(id: string, name: string, createdAt: string, inviteIdText: string, inviterId: string, inviterRootId: string, generation: number, rail: string,
+  contact: string | null = null, markers: Markers = syntheticMarker) {
+  await owner.query(`INSERT INTO users (id,display_name,contact,generation,acquisition_parent_id,acquisition_root_id,acquisition_invite_id,acquisition_rail,synthetic,test,created_at)
+    VALUES ($1,$2,$9,$3,$4,$5,$6,$7,$10,$11,$8) ON CONFLICT (id) DO NOTHING`,
+    [id, name, generation, inviterId, inviterRootId, inviteIdText, rail, createdAt, contact, markers.synthetic ?? false, markers.test ?? false]);
   await owner.query(`INSERT INTO signup_attribution (user_id,generation,parent_id,root_id,invite_id,rail,created_at)
     VALUES ($1,$3,$4,$5,$6,$7,$2) ON CONFLICT (user_id) DO NOTHING`,
     [id, createdAt, generation, inviterId, inviterRootId, inviteIdText, rail]);
@@ -298,18 +396,48 @@ async function redemption(id: string, inviteId: string, activityId: string, invi
     SELECT $1,$2,$3,$4,i.rail,$5,u.generation,$6,$7 FROM invites i JOIN users u ON u.id=$5 WHERE i.id=$2`,
     [id, inviteId, activityId, inviterId, inviteeId, bookingId, createdAt]);
 }
-interface EventFixture { id: string; name: string; occurredAt: string; source?: string; platform?: string; actorId?: string | null; journeyId?: string | null;
-  activityId?: string | null; bookingId?: string | null; inviteId?: string | null; context?: object }
+interface EventFixture { id: string; name: string; occurredAt: string; receivedAt?: string; source?: string; platform?: string; actorId?: string | null; journeyId?: string | null;
+  activityId?: string | null; bookingId?: string | null; inviteId?: string | null; context?: object; markers?: Markers }
 async function recordEvents(events: EventFixture[]) {
   for (const event of events) {
-    await owner.query(`INSERT INTO analytics_events (id,schema_version,name,occurred_at,source,platform,actor_id,journey_id,activity_id,booking_id,invite_id,context,synthetic)
-      VALUES ($1,1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,true)`,
+    const markers = event.markers ?? syntheticMarker;
+    // Receipt defaults to occurrence: these fixtures model prompt server-side ingestion.
+    await owner.query(`INSERT INTO analytics_events (id,schema_version,name,occurred_at,received_at,source,platform,actor_id,journey_id,activity_id,booking_id,invite_id,context,synthetic,test)
+      VALUES ($1,1,$2,$3,$12,$4,$5,$6,$7,$8,$9,$10,$11,$13,$14)`,
       [event.id, event.name, event.occurredAt, event.source ?? 'server', event.platform ?? 'web', event.actorId ?? null, event.journeyId ?? null,
-        event.activityId ?? null, event.bookingId ?? null, event.inviteId ?? null, JSON.stringify(event.context ?? {})]);
+        event.activityId ?? null, event.bookingId ?? null, event.inviteId ?? null, JSON.stringify(event.context ?? {}),
+        event.receivedAt ?? event.occurredAt, markers.synthetic ?? false, markers.test ?? false]);
   }
 }
+// Mirrors bookSeat's outcome shape: the activity and request id live in context.
 function outcome(actorId: string, result: string, eligibility: string, at: string, operation = 'book_activity'): EventFixture {
-  return { id: randomUUID(), name: 'booking_request_outcome', occurredAt: at, actorId, context: { outcome: result, eligibility, operation } };
+  return { id: randomUUID(), name: 'booking_request_outcome', occurredAt: at, actorId,
+    context: { outcome: result, eligibility, operation, activityId: actR, requestId: randomUUID() } };
+}
+// Mirrors recordInvalidBooking when the actor resolved but the activity did not.
+function unresolvedFailure(actorId: string, at: string): EventFixture {
+  return { id: randomUUID(), name: 'booking_request_outcome', occurredAt: at, actorId,
+    context: { outcome: 'technical_error', eligibility: 'unknown', operation: 'book_activity', stage: 'validation', requestId: randomUUID() } };
+}
+interface ObservationFixture { timing: 'commit_observed' | 'pre_commit_proxy'; deliveries: (number | null)[] }
+// One committed booking with its outbox event and per-gateway observations, as saveObservation
+// writes them: expected equals the captured subscribers, each with a delivery row. A delay is
+// an ACK after that many milliseconds; null never ACKed before its two-second deadline.
+async function liveBookingFixture(activityId: string, userId: string, version: number, at: string, observations: ObservationFixture[]) {
+  const bookingId = randomUUID(), eventId = randomUUID();
+  const processes = observations.map(() => randomUUID());
+  await booking(bookingId, activityId, userId, at);
+  await owner.query(`INSERT INTO outbox_events (id,name,activity_id,booking_id,version,payload,created_at,origin_process_id)
+    VALUES ($1,'availability_updated',$2,$3,$4,'{}',$5,$6)`, [eventId, activityId, bookingId, version, at, processes[0]]);
+  for (const [index, observation] of observations.entries()) {
+    await owner.query(`INSERT INTO live_observations (event_id,process_id,timing,observed_at,started_clock,expected)
+      VALUES ($1,$2,$3,$4,0,$5)`, [eventId, processes[index], observation.timing, at, observation.deliveries.length]);
+    for (const delay of observation.deliveries) {
+      await owner.query(`INSERT INTO live_deliveries (event_id,process_id,connection_id,client_id,deadline,ack_at,sent_version,delay_ms)
+        VALUES ($1,$2,$3,$4,$5::timestamptz + interval '2 seconds',$5::timestamptz + $6 * interval '1 millisecond',$7,$8)`,
+        [eventId, processes[index], randomUUID(), randomUUID(), at, delay, version, delay]);
+    }
+  }
 }
 
 
@@ -325,10 +453,9 @@ test('an eventless window reports no data rather than fabricated zero rates', as
   assert.equal(reliability.eligibleRate, null);
   assert.equal(reliability.unknownInclusiveRate, null);
   assert.equal(reliability.status, 'no_data');
-  assert.equal(reliability.target, 0.995);
-  assert.equal(reliability.trigger.resolvedIntents, 1000);
+  assert.equal(reliability.target, reliabilityTarget);
+  assert.equal(reliability.trigger.resolvedIntents, reliabilityMinResolvedIntents);
   assert.equal(data.live.status, 'no_data');
-  assert.equal(typeof data.live.endpoint, 'string');
 });
 
 test('summary and product windows are validated like live metrics', async () => {
@@ -344,99 +471,128 @@ test('summary and product windows are validated like live metrics', async () => 
   assert.equal(missing.status, 200);
 });
 
-test('reliability classifies distinct logical intents and keeps unknown failures visible', async () => {
-  // rA (eventual commit after an eligible failure), rF (replay of a committed result) and
-  // rG (commit exactly at window start) succeed: S=3. rB fails eligible; rC and a request
-  // whose identity never resolved fail unknown (U=2). rD sold out and rE invalid are excluded
-  // from reliability; rH's commit sits at the exclusive window end. rA's retry stays visible.
+test('reliability follows the logical-intent policy and keeps unknown failures visible', async () => {
+  // S: rA (eligible failure retried into a commit) and rG (commit exactly at window start).
+  // F: rB. U: rC, the request whose identity never resolved, and rD's two unrelated failures
+  // whose activity never resolved (kept apart rather than merged). Excluded but reported:
+  // rF's replay-only intent, rD's sold-out intent and rE's invalid request. rH's commit sits
+  // at the exclusive window end.
   const { status, data } = await summary();
   assert.equal(status, 200);
-  assert.deepEqual(data.bookings.rawOutcomes, { committed: 2, replay: 1, soldOut: 1, invalid: 1, technicalError: 4, total: 9 });
+  assert.deepEqual(data.bookings.rawOutcomes, { committed: 2, replay: 1, soldOut: 1, invalid: 1, technicalError: 6, total: 11 });
   assert.equal(data.bookings.attempts, 2);
-  assert.equal(data.bookings.distinctIntents, 8);
+  assert.equal(data.bookings.distinctIntents, 10);
   assert.equal(data.bookings.retriedIntents, 1);
-  assert.ok(Math.abs(data.bookings.technicalErrorRate - 4 / 9) < 1e-9);
+  assert.ok(Math.abs(data.bookings.technicalErrorRate - 6 / 11) < 1e-9);
+  assert.deepEqual(data.bookings.excludedIntents, { replayOnly: 1, soldOut: 1, invalid: 1 });
   const reliability = data.bookings.reliability;
-  assert.equal(reliability.succeeded, 3);
+  assert.equal(reliability.succeeded, 2);
   assert.equal(reliability.eligibleFailures, 1);
-  assert.equal(reliability.unknownFailures, 2);
-  assert.equal(reliability.eligibleRate, 0.75);
-  assert.equal(reliability.unknownInclusiveRate, 0.5);
-  assert.equal(reliability.resolvedIntents, 4);
+  assert.equal(reliability.unknownFailures, 4);
+  assert.ok(Math.abs(reliability.eligibleRate - 2 / 3) < 1e-9);
+  assert.ok(Math.abs(reliability.unknownInclusiveRate - 2 / 7) < 1e-9);
+  assert.equal(reliability.resolvedIntents, 3);
   assert.equal(reliability.status, 'insufficient_sample');
 });
 
-test('the summary repeats live delivery coverage and misses with the live p95 definition', async () => {
-  const { data } = await summary();
-  assert.equal(data.live.status, 'reported');
-  const group = data.live.groups.find((row: { timing: string }) => row.timing === 'commit_observed');
-  assert.ok(group, JSON.stringify(data.live));
-  assert.equal(group.expected, 2);
-  assert.equal(group.acknowledged, 1);
-  assert.equal(group.misses, 1);
-  assert.equal(group.pending, 0);
-  assert.equal(group.ackOnlyPerBookingP95Ms, 500);
-  const live = await (await fetch(`${base}${data.live.endpoint}`)).json();
-  const liveGroup = live.data.groups.find((row: { timing: string }) => row.timing === 'commit_observed');
-  assert.equal(liveGroup.ackOnlyPerBookingP95Ms, group.ackOnlyPerBookingP95Ms);
-  assert.equal(liveGroup.deliveryMisses, group.misses);
+const liveFields = ['timing', 'observedBookings', 'bookingsWithSubscribers', 'expectedDeliveries', 'acknowledged', 'onTimeAcknowledged',
+  'deliveryMisses', 'pending', 'eventualAckCoverage', 'onTimeCoverage', 'ackOnlyBookingSamples', 'ackOnlyPerBookingP95Ms', 'everyClientTargetMet'];
+async function liveParity(query: string) {
+  const { data } = await summary(query);
+  const live = (await (await fetch(`${base}/api/metrics/live${query}`)).json()).data;
+  assert.equal(data.live.report, `/api/metrics/live?${new URLSearchParams({ includeTest: String(data.includeTest), from: data.window.from, to: data.window.to })}`);
+  assert.deepEqual(data.live.groups, live.groups.map((group: Record<string, unknown>) => Object.fromEntries(liveFields.map(field => [field, group[field]]))));
+  assert.equal(data.live.instrumentationGaps, live.instrumentationGaps);
+  return data.live;
+}
+
+test('live delivery summary counts only real subscribers and matches the live report', async () => {
+  // E1: 2 expected, 1 ACK at 500ms, 1 miss. E2: observed with no subscribers. E3: 1 ACK at
+  // 1200ms at its origin; a second gateway observed it by proxy with no subscribers.
+  const live = await liveParity(`?from=${from}&to=${to}&includeTest=true`);
+  assert.equal(live.status, 'reported');
+  assert.equal(live.instrumentationGaps, 0);
+  const [commit, proxy] = live.groups;
+  assert.deepEqual(commit, { timing: 'commit_observed', observedBookings: 3, bookingsWithSubscribers: 2, expectedDeliveries: 3,
+    acknowledged: 2, onTimeAcknowledged: 2, deliveryMisses: 1, pending: 0, eventualAckCoverage: 2 / 3, onTimeCoverage: 2 / 3,
+    ackOnlyBookingSamples: 2, ackOnlyPerBookingP95Ms: 1200, everyClientTargetMet: false });
+  assert.deepEqual(proxy, { timing: 'pre_commit_proxy', observedBookings: 1, bookingsWithSubscribers: 0, expectedDeliveries: 0,
+    acknowledged: 0, onTimeAcknowledged: 0, deliveryMisses: 0, pending: 0, eventualAckCoverage: null, onTimeCoverage: null,
+    ackOnlyBookingSamples: 0, ackOnlyPerBookingP95Ms: null, everyClientTargetMet: null });
 });
 
-test('synthetic and test actors never contaminate product metrics by default', async () => {
+test('a booking nobody watched is neither a pending delivery nor an SLO pass', async () => {
+  const zeroOnly = await liveParity('?from=2026-10-06T00:00:00Z&to=2026-10-07T00:00:00Z&includeTest=true');
+  assert.equal(zeroOnly.status, 'no_expected_deliveries');
+  assert.equal(zeroOnly.groups[0].observedBookings, 1);
+  assert.equal(zeroOnly.groups[0].expectedDeliveries, 0);
+  assert.equal(zeroOnly.groups[0].pending, 0);
+  assert.equal(zeroOnly.groups[0].everyClientTargetMet, null);
+  // The mixed booking passes only for the gateway that had a subscriber.
+  const mixed = await liveParity('?from=2026-10-04T00:00:00Z&to=2026-10-05T00:00:00Z&includeTest=true');
+  assert.equal(mixed.status, 'reported');
+  assert.equal(mixed.groups[0].expectedDeliveries, 1);
+  assert.equal(mixed.groups[0].everyClientTargetMet, true);
+  assert.equal(mixed.groups[1].observedBookings, 1);
+  assert.equal(mixed.groups[1].everyClientTargetMet, null);
+  const filtered = await liveParity(`?from=${from}&to=${to}&includeTest=false`);
+  assert.equal(filtered.status, 'no_data');
+});
+
+test('synthetic and test actors never contaminate windowed summary metrics by default', async () => {
   const { data } = await summary(`?from=${from}&to=${to}&includeTest=false`);
   assert.deepEqual(data.bookings.rawOutcomes, { committed: 0, replay: 0, soldOut: 0, invalid: 0, technicalError: 0, total: 0 });
   assert.equal(data.bookings.attempts, 0);
   assert.equal(data.bookings.reliability.status, 'no_data');
   assert.equal(data.bookings.reliability.eligibleRate, null);
   assert.equal(data.live.status, 'no_data');
+  // Integrity is a global current-state check: markers and the window never hide an oversell.
+  assert.equal(data.integrity.oversoldActivities, 1);
 });
 
-test('oversold activities and counter mismatches are reported as integrity violations', async () => {
+test('integrity reports every violation total and caps detail rows', async () => {
   const { data } = await summary();
   assert.equal(data.integrity.oversoldActivities, 1);
-  assert.equal(data.integrity.counterMismatchActivities, 1);
+  assert.equal(data.integrity.counterMismatchActivities, 102);
+  assert.equal(data.integrity.violatingActivities, 102);
   assert.equal(data.integrity.violation, true);
-  const violation = data.integrity.violations.find((row: { activityId: string }) =>
-    row.activityId === '22222222-0000-4000-8000-000000000090');
-  assert.ok(violation, JSON.stringify(data.integrity));
-  assert.equal(violation.capacity, 1);
-  assert.equal(violation.bookingCount, 2);
-  assert.equal(violation.confirmedCount, 0);
-  assert.equal(violation.oversold, true);
-  assert.equal(violation.counterMismatch, true);
+  assert.equal(data.integrity.violations.length, maxIntegrityDetails);
+  assert.deepEqual(data.integrity.details, { limit: maxIntegrityDetails, truncated: true, omittedViolations: 2 });
+  // Oversells sort first, so the cap never hides them behind counter-only mismatches.
+  assert.deepEqual(data.integrity.violations[0], { activityId: '22222222-0000-4000-8000-000000000090', capacity: 1,
+    confirmedCount: 0, bookingCount: 2, oversold: true, counterMismatch: true });
 });
 
 test('booker-to-inviter counts each first window booking with a 24h invite and matures windows', async () => {
-  // 20 users' first in-window bookings are mature (12 organic, 8 invited generation-1
+  // 22 users' first in-window bookings are mature (14 organic, 8 invited generation-1
   // guests); booker1 (23h) and booker5 (vouch, 10h) invited, while booker2 (25h), booker6
   // (wrong activity) and everyone else did not. booker3 booked too recently to judge.
   // host1's own invite is the separate host segment.
   const { status, data } = await product();
   assert.equal(status, 200);
   const bookers = data.bookersInvite;
-  assert.equal(bookers.definition, "each user's first confirmed booking in the window; an invite for that activity within 24h counts as invited");
-  assert.equal(bookers.mature.qualifyingBookers, 20);
+  assert.equal(bookers.mature.qualifyingBookers, 22);
   assert.equal(bookers.mature.invitedWithin24h, 2);
-  assert.ok(Math.abs(bookers.mature.rate - 0.1) < 1e-9);
-  assert.ok(bookers.mature.wilson95[0] < 0.1 && bookers.mature.wilson95[1] > 0.1);
+  assert.ok(Math.abs(bookers.mature.rate - 2 / 22) < 1e-9);
+  assert.ok(bookers.mature.wilson95[0] < 2 / 22 && bookers.mature.wilson95[1] > 2 / 22);
   assert.deepEqual(bookers.mature.bySignupGeneration, {
-    0: { qualifyingBookers: 12, invitedWithin24h: 2 },
+    0: { qualifyingBookers: 14, invitedWithin24h: 2 },
     1: { qualifyingBookers: 8, invitedWithin24h: 0 },
   });
   assert.equal(bookers.notYetMature.qualifyingBookers, 1);
   assert.equal(bookers.notYetMature.invitedWithin24h, 1);
   assert.deepEqual(bookers.mature.invitedByRail, { vouch: 1, public: 1 });
   assert.equal(bookers.hostCreatorsWithoutBooking, 1);
-  assert.equal(bookers.target, 0.3);
-  assert.equal(bookers.trigger.matureBookerJourneys, 200);
+  assert.equal(bookers.target, bookerInviteTarget);
+  assert.equal(bookers.trigger.matureBookerJourneys, bookerMinMatureJourneys);
   assert.equal(bookers.status, 'insufficient_sample');
 });
 
 test('open-to-claim deduplicates journeys, honours 24h and start deadlines, and separates recovery', async () => {
   // Eight mature acquisition journeys opened (J1's repeated open counts once): J1, J2, J7,
-  // J9 convert; J5 converts after seeing a full preview (headline only); J3, J10 (claim after
-  // activity start) and J11 do not. J6 is a returning booker's recovery reopen, reported
-  // separately and kept out of the headline. J4 is not yet mature.
+  // J9 (claim exactly 24h after its open) convert; J5 converts after seeing a full preview
+  // (headline only); J3, J10 (claim after activity start) and J11 do not. J6 is a returning
+  // booker's recovery reopen, reported separately and kept out of every rate. J4 is not yet mature.
   const { data } = await product();
   const opens = data.openToClaim;
   assert.equal(opens.headline.openedJourneys, 8);
@@ -460,9 +616,36 @@ test('open-to-claim deduplicates journeys, honours 24h and start deadlines, and 
   assert.deepEqual(opens.byViewer.new, { opened: 6, converted: 4 });
   assert.deepEqual(opens.byViewer.returning, { opened: 1, converted: 0 });
   assert.deepEqual(opens.byInviterGeneration, { 0: { opened: 7, converted: 4 } });
-  assert.equal(opens.target, 0.25);
-  assert.equal(opens.trigger.matureJourneys, 200);
+  assert.equal(opens.target, openClaimTarget);
+  assert.equal(opens.trigger.matureJourneys, openMinMatureJourneys);
   assert.equal(opens.status, 'insufficient_sample');
+});
+
+test('conversion timing tolerates clocks ahead or behind, late uploads and overlapping invites', async () => {
+  // See timingFixtures: K1–K4 and (T2,K6) convert; K5 and (T,K6) do not.
+  const { data } = await product(`?from=${timingFrom}&to=${timingTo}&includeTest=true`);
+  const opens = data.openToClaim;
+  assert.equal(opens.headline.openedJourneys, 7);
+  assert.equal(opens.headline.convertedJourneys, 5);
+  assert.equal(opens.eligible.eligibleOpens, 7);
+  assert.equal(opens.eligible.converted, 5);
+  const units = (await owner.query(`SELECT journey_id, invite_id, opened_at, converted FROM metric_invite_open_units
+    WHERE journey_id::text LIKE '55555555-0000-4000-8000-00000000007%'
+    ORDER BY journey_id, opened_at`)).rows;
+  const byJourney = (suffix: string, inviteSuffix = '70') => units.find(unit => unit.journey_id === journey(suffix) && unit.invite_id === inviteId(inviteSuffix));
+  // Clock ahead: clamped to receipt. Clock behind: clamped to invite creation. Late upload: kept.
+  assert.equal(byJourney('71').opened_at.toISOString(), '2026-09-10T09:00:00.200Z');
+  assert.equal(byJourney('73').opened_at.toISOString(), '2026-09-10T07:00:00.000Z');
+  assert.equal(byJourney('74').opened_at.toISOString(), '2026-09-10T12:00:00.000Z');
+  assert.deepEqual(['71', '72', '73', '74', '75'].map(suffix => byJourney(suffix).converted), [true, true, true, true, false]);
+  assert.equal(byJourney('76').converted, false);
+  assert.equal(byJourney('76', '71').converted, true);
+});
+
+test('the open-unit view encodes the shared timing policy', async () => {
+  const [{ definition }] = (await owner.query(`SELECT pg_get_viewdef('metric_invite_open_units') AS definition`)).rows;
+  assert.ok(definition.includes(`'${inviteWindowHours}:00:00'::interval`), definition);
+  assert.ok(definition.includes(`'00:${String(openClaimSkewToleranceMinutes).padStart(2, '0')}:00'::interval`), definition);
 });
 
 test('k-factor freezes a host/booker cohort, splits rails, and keeps descendants by generation', async () => {
@@ -475,7 +658,7 @@ test('k-factor freezes a host/booker cohort, splits rails, and keeps descendants
   const { data } = await product();
   const k = data.kFactor;
   assert.equal(Date.parse(k.cohort.asOf), Date.parse(from));
-  assert.equal(k.window.days, 7);
+  assert.deepEqual(k.window, { days: 7, planned: kWindowDays });
   assert.equal(k.cohort.size, 5);
   assert.equal(k.byRail.vouch.acquired, 2);
   assert.equal(k.byRail.vouch.activated, 1);
@@ -520,6 +703,28 @@ test('holdout compares every assigned activity on participants and provisional f
   assert.equal(data.holdout.experiment, 'group_invites_v1');
 });
 
+test('marker filtering uses trusted context for holdout participants, acquisition parents and claims', async () => {
+  const filtered = (await product(`?from=${markerFrom}&to=${markerTo}&includeTest=false`)).data;
+  const unfiltered = (await product(`?from=${markerFrom}&to=${markerTo}&includeTest=true`)).data;
+  // Holdout: marked participants leave the counts; the control activity with only a marked
+  // participant stays in its arm with zero qualifying participants.
+  const holdoutFiltered = filtered.holdout.byVersion.find((version: { version: string }) => version.version === 'metrics-holdout-markers');
+  assert.deepEqual([holdoutFiltered.treatment.activities, holdoutFiltered.treatment.participants, holdoutFiltered.treatment.formedPlans], [1, 1, 0]);
+  assert.deepEqual([holdoutFiltered.control.activities, holdoutFiltered.control.participants, holdoutFiltered.control.formedPlans], [1, 0, 0]);
+  const holdoutAll = unfiltered.holdout.byVersion.find((version: { version: string }) => version.version === 'metrics-holdout-markers');
+  assert.deepEqual([holdoutAll.treatment.participants, holdoutAll.treatment.formedPlans, holdoutAll.control.participants], [2, 1, 1]);
+  // K: the marked host is outside the cohort, so its unmarked acquisition does not count, and
+  // the generation breakdown drops users whose acquisition parent is marked.
+  assert.equal(filtered.kFactor.cohort.size, 1);
+  assert.deepEqual(filtered.kFactor.byRail.public, { acquired: 1, activated: 0, k: 1, activatedK: 0 });
+  assert.deepEqual(filtered.kFactor.newUsersByGeneration, [{ generation: 1, users: 1 }]);
+  // Opens: a unit claimed by a test-marked actor is excluded with its claim.
+  assert.deepEqual([filtered.openToClaim.headline.openedJourneys, filtered.openToClaim.headline.convertedJourneys], [1, 0]);
+  assert.deepEqual([unfiltered.openToClaim.headline.openedJourneys, unfiltered.openToClaim.headline.convertedJourneys], [2, 1]);
+  // Bookers: only the unmarked participant's booking qualifies.
+  assert.equal(filtered.bookersInvite.mature.qualifyingBookers, 1);
+});
+
 test('an empty window shows no data across every product block', async () => {
   const { data } = await product('?from=2026-08-01T00:00:00Z&to=2026-08-08T00:00:00Z&includeTest=true');
   assert.equal(data.bookersInvite.status, 'no_data');
@@ -538,4 +743,13 @@ test('synthetic product traffic stays out of the default view', async () => {
   assert.equal(data.kFactor.status, 'no_data');
   assert.equal(data.kFactor.cohort.size, 0);
   assert.deepEqual(data.holdout.byVersion, []);
+});
+
+test('reports run in one bounded read-only snapshot and concurrent requests agree', async () => {
+  const settings = await withReportSnapshot(runtime, async snapshot => (await snapshot.query(`SELECT current_setting('transaction_isolation') AS isolation,
+    current_setting('transaction_read_only') AS read_only, current_setting('statement_timeout') AS timeout`) as { rows: Record<string, string>[] }).rows[0]);
+  assert.deepEqual(settings, { isolation: 'repeatable read', read_only: 'on', timeout: '1500ms' });
+  const reports = await Promise.all(Array.from({ length: 6 }, () => product()));
+  assert.ok(reports.every(report => report.status === 200));
+  assert.ok(reports.every(report => JSON.stringify(report.data) === JSON.stringify(reports[0]!.data)));
 });

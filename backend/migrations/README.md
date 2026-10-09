@@ -58,9 +58,12 @@ without `NOT VALID`/`CONCURRENTLY`. That is acceptable at demo scale; a populate
 rollout would need staged validation, which is a follow-up.
 
 `012` adds the `metric_invite_open_units` view: one deduplicated `(invite, guest journey)`
-first open per unit with its rail, inviter generation, platform, displayed state, recovery flag and the
-earlier-of-24h/activity-start claim deadline, plus whether an attributed `spot_claimed`
-landed inside it. Runtime receives SELECT on the view only; it changes no historical data.
-The metrics endpoints (`/api/metrics/summary`, `/api/metrics/product`) read it together
-with `booking_reconciliation`, `analytics_events`, bookings/invites/users and
-`experiment_assignments`.
+unit per earliest effective open, with rail, inviter generation, platform, displayed state,
+recovery flag, the claim deadline (earlier of 24h and activity start) and whether an
+attributed `spot_claimed` converted it. The view's header documents the timing policy (client
+open times clamped to [invite creation, receipt], a five-minute skew tolerance before the
+open) and marks a unit when its open or claim is marked. It also adds `analytics_events`
+indexes on `(name, occurred_at)` and `(invite_id, journey_id, name)` for windowed reads and
+per-journey claim lookups. Runtime receives SELECT on the view only; no historical row
+changes. The view still scans the full open history per evaluation; see
+`docs/verification/product-metrics.md` for measured limits.

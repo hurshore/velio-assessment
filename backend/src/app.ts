@@ -3,7 +3,8 @@ import express, { type ErrorRequestHandler } from 'express';
 import { createInvitePolicy, experimentRoutes, type InviteConfig } from './experiments.js';
 import type { AvailabilityEvent } from './outbox.js';
 import { liveMetricsRoutes } from './live-metrics.js';
-import { productRoutes, summaryRoutes } from './product-metrics.js';
+import { productRoutes } from './product-metrics.js';
+import { summaryRoutes } from './summary-metrics.js';
 import { bookingRoutes, recordInvalidBooking, type BookingDatabase } from './bookings.js';
 import { eventRoutes } from './events.js';
 import { activityRoutes } from './activities.js';
@@ -95,7 +96,7 @@ export function createApp(dependencies: Dependencies, webOrigin: string, logFail
     response.json({ data: { status: 'ok', dependencies: { postgres: 'ok', redis: 'ok' } }, requestId: response.locals.requestId });
   });
   app.use('/api/metrics', liveMetricsRoutes(dependencies.postgres, dependencies.liveHealth));
-  app.use('/api/metrics', summaryRoutes(dependencies.postgres));
+  app.use('/api/metrics', summaryRoutes(dependencies.postgres, dependencies.liveHealth));
   app.use('/api/metrics', productRoutes(dependencies.postgres));
   app.use('/api/events', eventRoutes(dependencies.postgres));
   app.use('/api/activities', experimentRoutes(invitePolicy));
