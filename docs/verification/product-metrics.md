@@ -4,8 +4,8 @@ Verified locally on 9 October 2026 against PLANS.md §1.3–1.5 and §4.1–4.4.
 
 ## Executed checks
 
-- `npm run test --workspace backend`: 138 tests pass. This includes 17 scenarios in `backend/test/metrics.test.ts` and 3 in `backend/test/seed.test.ts`.
-- Web: 104 tests. Root scripts: 12 tests. `npm run mobile:check`: Flutter analysis clean, 13 tests.
+- `npm run test --workspace backend`: 140 tests pass after merging current `main`. This includes 17 scenarios in `backend/test/metrics.test.ts` and 3 in `backend/test/seed.test.ts`.
+- Web: 104 tests. Root scripts: 12 tests. `npm run mobile:check`: Flutter analysis clean, 48 tests (including the guest-journey suites from #8 and #9).
 - `npm run typecheck`, `npm run build` and `git diff --check` pass.
 - Migration 012 has never been applied to a persistent database; the local dev database is at 011.
 
