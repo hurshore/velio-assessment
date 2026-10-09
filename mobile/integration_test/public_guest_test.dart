@@ -62,8 +62,9 @@ class CompetingBooking extends http.BaseClient {
 Future<Map<String, dynamic>> treatmentActivity(
   GuestApi setup,
   String host,
-  String title,
-) async {
+  String title, {
+  int capacity = 1,
+}) async {
   for (var attempt = 0; attempt < 30; attempt++) {
     final activity = object(
       await setup.request(
@@ -76,7 +77,7 @@ Future<Map<String, dynamic>> treatmentActivity(
           'meetingLocation': 'Marina gate',
           'startsAt': utcTimestamp(DateTime.now().add(const Duration(days: 2))),
           'timezone': 'Africa/Lagos',
-          'capacity': 1,
+          'capacity': capacity,
           'priceMinor': 2500,
           'currency': 'NGN',
         },

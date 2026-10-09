@@ -75,6 +75,7 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
   final _clientId = newId();
   List<Map<String, dynamic>> _participants = [];
   String? _savedAt;
+  int _participantVersion = 0;
   bool _foreground = true, _liveReady = false, _recipientMatched = true;
   String? _message;
   bool _busy = false,
@@ -83,7 +84,7 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
       _checkedBooking = false,
       _uncertain = false;
   bool _claimBlocked = false, _stale = false;
-  int _version = 0;
+  int _version = 0, _selectionVersion = 0;
   Uri? _queuedLink;
   GuestSession get session => widget.session;
   GuestApi get api => widget.api;
@@ -188,8 +189,9 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
               previous.state != snapshot.activity.state) {
             _preview = snapshot.activity;
           }
-          if (receivedVersion > visibleVersion || _participants.isEmpty) {
+          if (receivedVersion >= _participantVersion) {
             _participants = snapshot.participants;
+            _participantVersion = receivedVersion;
           }
           _liveReady = true;
           _stale = false;
@@ -255,6 +257,7 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
         preview.toJson(),
         _participants,
         booking: _confirmation?.booking,
+        participantVersion: _participantVersion,
       );
       if (mounted && _preview?.code == preview.code) {
         setState(
@@ -287,6 +290,11 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
           'displayName': text(person, 'displayName'),
         };
       }).toList();
+      _participantVersion =
+          cached['participantVersion'] as int? ??
+          (_participants.length == preview.availability.confirmedCount
+              ? preview.availability.version
+              : 0);
       final booking = cached['booking'];
       if (booking is Map && booking['userId'] == session.actorId) {
         _confirmation = BookingState(
@@ -381,6 +389,7 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
         _preview = null;
         _confirmation = null;
         _participants = [];
+        _participantVersion = 0;
         _savedAt = null;
         _identity = null;
         _restoreDetails(normalizeCode(_code.text));
@@ -409,7 +418,10 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
       final preview = await api.preview(normalizeCode(_code.text));
       if (!mounted || version != _version) return;
       setState(() {
-        _preview = preview;
+        if (_preview == null ||
+            preview.availability.version >= _preview!.availability.version) {
+          _preview = preview;
+        }
         _stale = false;
       });
       await _saveDetails();
@@ -507,42 +519,82 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _select(DemoIdentity identity) async {
-    if (_busy) return;
+    if (_busy || _preview == null) return;
+    final preview = _preview!;
+    final version = _version;
+    final selection = ++_selectionVersion;
+    bool current() =>
+        mounted && version == _version && selection == _selectionVersion;
     setState(() {
       _busy = true;
       _message = null;
-      _confirmation = null;
-      _checkedBooking = false;
     });
     try {
-      await _lookup(_preview!, identity.id);
+      // Candidate checks must not publish state belonging to an unaccepted actor.
+      final result = await api.ownBooking(preview, identity.id);
+      if (!current()) return;
       final matches =
-          _confirmation != null ||
-          await api.recipientMatches(_preview!, identity.id);
+          result.booking != null ||
+          await api.recipientMatches(preview, identity.id);
+      if (!current()) return;
       if (!matches) {
-        if (mounted) {
-          setState(
-            () => _message = failureMessage(
-              ApiFailure('RECIPIENT_MISMATCH', false, ''),
-            ),
-          );
-        }
+        setState(
+          () => _message = failureMessage(
+            ApiFailure('RECIPIENT_MISMATCH', false, ''),
+          ),
+        );
         return;
       }
       await session.selectActor(identity.id);
+      if (!current()) return;
       _stopLive();
-      _claimBlocked = false;
-      if (!mounted) return;
       setState(() {
         _identity = identity;
         _identities = null;
         _recipientMatched = true;
+        _claimBlocked = false;
+        _checkedBooking = true;
+        _uncertain = session.hasPendingClaim(identity.id, preview.code);
+        _confirmation = null;
       });
-      _startLive(_preview!);
+      if (result.booking != null) {
+        await _confirm(result, preview, identity.id, celebrate: _uncertain);
+      }
+      if (current()) _startLive(_preview!);
     } catch (error) {
-      if (mounted) setState(() => _message = failureMessage(error));
+      if (current()) setState(() => _message = failureMessage(error));
     } finally {
-      _finish();
+      if (current()) _finish();
+    }
+  }
+
+  Future<void> _recoverPending(PendingClaim intent) async {
+    if (_busy) return;
+    final version = _version;
+    final selection = ++_selectionVersion;
+    bool current() =>
+        mounted && version == _version && selection == _selectionVersion;
+    setState(() {
+      _busy = true;
+      _message = null;
+    });
+    try {
+      await session.selectActor(intent.actorId);
+      if (!current()) return;
+      _code.text = intent.code;
+      setState(() => _busy = false);
+      await _load();
+    } catch (error) {
+      if (current()) {
+        setState(
+          () => _message = error is FileSystemException
+              ? 'Could not switch to the saved claim because local storage could not be updated. Free device storage and retry. Your earlier pending request and its original key are retained.'
+                    '${_confirmation != null ? ' Your current server-confirmed booking remains valid.' : ' No booking request was sent.'}'
+              : failureMessage(error),
+        );
+      }
+    } finally {
+      if (current()) _finish();
     }
   }
 
@@ -793,13 +845,7 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
                     'An earlier claim is still uncertain. Recover it before claiming another seat.',
                   ),
                   TextButton(
-                    onPressed: _busy
-                        ? null
-                        : () async {
-                            await session.selectActor(intent.actorId);
-                            _code.text = intent.code;
-                            await _load();
-                          },
+                    onPressed: _busy ? null : () => _recoverPending(intent),
                     child: const Text('Recover earlier confirmation'),
                   ),
                 ],

@@ -55,10 +55,10 @@ Vouches target one saved demo contact. Creating an identity accepts an optional 
 
 Saved details and participant names remain readable after restart without connectivity, with a saved timestamp and explicit stale-capacity label. A saved confirmation is shown for its selected actor; reopening online checks its authoritative membership. New offline claims are never queued. Uncertain online requests keep their keys; another intent stays blocked until the earlier confirmation is recovered or the same key is retried. A first-time offline code retains input and offers retry.
 
-The foreground live stream ignores older/duplicate membership, ACKs only after rendering, and closes in background/disposal. Foreground/resume reloads details and obtains a new snapshot before enabling new claims. A stalled stream reconnects; an offline launch retries HTTP while foreground. Tracking derives mobile rail/generation/assignment from the server, with the persistent guest journey retained through preview, claim and ACK. Local contact drafts are stored on the device and never copied to preview events or the public cache.
+Participant freshness is tracked independently of HTTP preview freshness; the first authoritative snapshot repairs cached membership even at the same preview version. The foreground live stream ignores older membership, ACKs only after rendering, and closes in background/disposal. Foreground/resume reloads details and obtains a new snapshot before enabling new claims. Online invitation eligibility comes from `activity.inviteState`, never the device clock. Unchanged reconciliation snapshots do not rewrite the cache. Candidate identity checks remain local until the identity save succeeds; rejected/failed selection preserves the original actor, and local recovery-save failures retain the original request key with actionable feedback. A stalled stream reconnects; an offline launch retries HTTP while foreground. Tracking derives mobile rail/generation/assignment from the server, with the persistent guest journey retained through preview, claim and ACK. Local contact drafts are stored on the device and never copied to preview events or the public cache.
 
 ```sh
-flutter test test/guest_live_recovery_test.dart test/guest_journey_test.dart
+flutter test test/guest_live_recovery_test.dart test/guest_selection_test.dart test/guest_eligibility_test.dart
 flutter test integration_test/live_guest_test.dart -d <ios-simulator-id> --dart-define=API_BASE_URL=http://127.0.0.1:3000
 ```
 

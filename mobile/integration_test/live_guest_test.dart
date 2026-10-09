@@ -87,6 +87,7 @@ void main() {
           setup,
           host['id'] as String,
           '$rail live supper $journey',
+          capacity: 2,
         );
         final invite = object(
           await setup.request(
@@ -171,6 +172,44 @@ void main() {
         await enabled(tester, 'Create demo identity');
         await tester.tap(find.text('Create demo identity'));
         await enabled(tester, 'Claim my seat');
+        final acceptedActor = session.actorId;
+        await tester.ensureVisible(find.text('Choose demo identity'));
+        await tester.tap(find.text('Choose demo identity'));
+        await helpers.waitFor(
+          tester,
+          find.widgetWithText(OutlinedButton, host['displayName'] as String),
+        );
+        await tester.ensureVisible(
+          find.widgetWithText(OutlinedButton, host['displayName'] as String),
+        );
+        await tester.tap(
+          find.widgetWithText(OutlinedButton, host['displayName'] as String),
+        );
+        if (rail == 'vouch') {
+          await helpers.waitFor(
+            tester,
+            find.textContaining('This vouch is for one intended contact.'),
+          );
+          expect(session.actorId, acceptedActor);
+        } else {
+          await helpers.waitFor(
+            tester,
+            find.text('Selected demo identity: ${host['displayName']}'),
+          );
+          expect(session.actorId, host['id']);
+        }
+        await tester.ensureVisible(find.text('Choose demo identity'));
+        await tester.tap(find.text('Choose demo identity'));
+        await helpers.waitFor(
+          tester,
+          find.widgetWithText(OutlinedButton, displayName),
+        );
+        await tester.ensureVisible(
+          find.widgetWithText(OutlinedButton, displayName),
+        );
+        await tester.tap(find.widgetWithText(OutlinedButton, displayName));
+        await enabled(tester, 'Claim my seat');
+        expect(session.actorId, acceptedActor);
         await tester.tap(find.text('Claim my seat'));
         await helpers.waitFor(tester, find.text('Your seat is confirmed'));
         await helpers.waitFor(tester, find.text(displayName));
@@ -180,7 +219,7 @@ void main() {
           await setup.preview(code),
           actor,
         );
-        expect(confirmed.availability.remainingSeats, 0);
+        expect(confirmed.availability.remainingSeats, 1);
         expect(session.hasPendingClaim(actor, code), false);
         final open = transport.events.firstWhere(
           (event) => event['name'] == 'invite_opened',
@@ -200,7 +239,13 @@ void main() {
         expect(find.textContaining('Saved/offline details'), findsOneWidget);
         tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
         tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
-        await Future<void>.delayed(const Duration(milliseconds: 100));
+        await setup.request(
+          '/activities/${activity['id']}/bookings',
+          method: 'POST',
+          actorId: host['id'] as String,
+          key: newId(),
+          body: {'platform': 'web', 'journeyId': newId()},
+        );
         tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
         tester.binding.handleAppLifecycleStateChanged(
           AppLifecycleState.inactive,
@@ -212,6 +257,9 @@ void main() {
           tester,
           find.text('Live availability connected.'),
         );
+        await helpers.waitFor(tester, find.text(host['displayName'] as String));
+        expect(find.text(displayName), findsOneWidget);
+        expect((session.cached(code)!['participants'] as List).length, 2);
         await tester.pumpWidget(const SizedBox.shrink());
         transport.offline = true;
         session = await GuestSession.open(file);
@@ -219,6 +267,7 @@ void main() {
         await helpers.waitFor(tester, find.text('Your seat is confirmed'));
         expect(find.textContaining('Saved/offline details'), findsOneWidget);
         expect(find.text(displayName), findsOneWidget);
+        expect(find.text(host['displayName'] as String), findsOneWidget);
         transport.offline = false;
         await helpers.waitFor(
           tester,

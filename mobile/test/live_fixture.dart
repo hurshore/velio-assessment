@@ -21,7 +21,12 @@ class FixtureSocket implements LiveSocket {
         'capacity': value['capacity'],
         'confirmedCount': value['confirmedCount'],
         'remainingSeats': value['remainingSeats'],
-        'activity': value,
+        'activity': {
+          ...value,
+          'inviteState':
+              value['inviteState'] ??
+              (value['remainingSeats'] == 0 ? 'full' : 'valid'),
+        },
       }),
     );
   }

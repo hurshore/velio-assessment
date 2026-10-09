@@ -104,7 +104,7 @@ async function fixture(capacity = 3) {
   return { actorId, activity };
 }
 function book(activityId: string, actorId: string) { return request(`/activities/${activityId}/bookings`, { platform: 'web', journeyId: randomUUID() }, actorId); }
-interface Snapshot { type: string; activityId: string; eventId: string | null; version: number; confirmedCount: number; remainingSeats: number; activity: { participants: unknown[] } }
+interface Snapshot { type: string; activityId: string; eventId: string | null; version: number; confirmedCount: number; remainingSeats: number; activity: { participants: unknown[]; inviteState?: string } }
 async function connect(activityId: string, api = base, foreground = true, clientId: string = randomUUID(), waitSnapshot = true, context: Record<string, unknown> = {}) {
   const socket = new WebSocket(api.replace('http:', 'ws:').replace('/api', '/api/live'), { origin });
   clients.push(socket);
@@ -570,6 +570,7 @@ test('mobile ACKs keep the guest journey and derive vouch lineage and assignment
   const journeyId = randomUUID();
   const guest = (await request('/identities', { displayName: 'Mobile recipient', contact, inviteCode: invite.code, journeyId, platform: 'mobile' })).data;
   const mobile = await connect(activity.id, base, true, randomUUID(), true, { platform: 'mobile', journeyId, actorId: guest.id, inviteCode: invite.code });
+  assert.equal(mobile.messages.find(m => m.version === 1)?.activity.inviteState, 'valid');
   const result = await request(`/invites/${invite.code}/claims`, { platform: 'mobile', journeyId }, guest.id);
   assert.equal(result.status, 201);
   await until(() => mobile.messages.some(m => m.eventId && m.version === 2));
@@ -582,5 +583,7 @@ test('mobile ACKs keep the guest journey and derive vouch lineage and assignment
   assert.equal(applied[0].context.rail, 'vouch'); assert.equal(applied[0].context.generation, 1);
   assert.deepEqual(applied[0].context.assignment, activity.assignment);
   assert.equal(JSON.stringify(applied).includes(contact), false);
+  await owner.query("UPDATE activities SET status='cancelled' WHERE id=$1", [activity.id]);
+  await until(() => mobile.messages.some(m => m.activity.inviteState === 'cancelled'));
   mobile.socket.terminate();
 });

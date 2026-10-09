@@ -138,20 +138,11 @@ class InvitePreview {
         key: activity[key],
     },
   };
-  InvitePreview withActivity(Map<String, dynamic> detail) {
-    final now = DateTime.now();
-    final state = detail['status'] == 'cancelled'
-        ? 'cancelled'
-        : detail['status'] == 'completed' ||
-              !timestamp(detail, 'startsAt').isAfter(now)
-        ? 'started'
-        : !DateTime.parse(expiresAt).isAfter(now)
-        ? 'expired'
-        : Availability(detail).remainingSeats == 0
-        ? 'full'
-        : 'valid';
-    return InvitePreview({...toJson(), 'state': state, 'activity': detail});
-  }
+  InvitePreview withActivity(Map<String, dynamic> detail) => InvitePreview({
+    ...toJson(),
+    'state': text(detail, 'inviteState'),
+    'activity': detail,
+  });
 }
 
 class DemoIdentity {

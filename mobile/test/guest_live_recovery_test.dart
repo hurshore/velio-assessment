@@ -27,6 +27,18 @@ void main() {
     'saved offline details survive restart and reconnect without re-entering a code',
     (tester) async {
       var offline = false;
+      var advanced = false;
+      Map<String, Object?> currentPreview() => advanced
+          ? {
+              ...fixture.preview(state: 'full'),
+              'activity': {
+                ...Map<String, dynamic>.from(
+                  fixture.preview(state: 'full')['activity'] as Map,
+                ),
+                'version': 3,
+              },
+            }
+          : fixture.preview();
       final events = <Map<String, dynamic>>[];
       final client = MockClient((request) async {
         if (offline) throw http.ClientException('Disconnected');
@@ -35,7 +47,7 @@ void main() {
           events.add(event);
           return fixture.envelope({'id': event['id'], 'accepted': true}, 202);
         }
-        return fixture.envelope(fixture.preview());
+        return fixture.envelope(currentPreview());
       });
       final api = GuestApi(client: client);
       addTearDown(() {
@@ -46,7 +58,7 @@ void main() {
         if (offline) throw const SocketException('Offline');
         return FixtureSocket(
           withParticipants(
-            Map<String, dynamic>.from(fixture.preview()['activity'] as Map),
+            Map<String, dynamic>.from(currentPreview()['activity'] as Map),
           ),
         );
       }
@@ -86,6 +98,7 @@ void main() {
         contains('invite_opened'),
       );
       offline = false;
+      advanced = true;
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(seconds: 4)),
       );
@@ -93,6 +106,15 @@ void main() {
       expect(find.text('Live availability connected.'), findsOneWidget);
       expect(find.textContaining('Saved/offline details'), findsNothing);
       expect(events.first['journeyId'], restored.journeyId);
+      expect(find.text('Participant 2'), findsOneWidget);
+      await fixture.settle(tester);
+      final persisted = await tester.runAsync(
+        () => GuestSession.open(session.file),
+      );
+      expect(
+        (persisted!.cached(fixture.code)!['participants'] as List).length,
+        2,
+      );
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );
@@ -149,6 +171,12 @@ void main() {
       expect(find.text('Participant 2'), findsOneWidget);
       expect(find.text(unavailableMessages['full']!), findsOneWidget);
       expect(socket.sent.where((m) => m['type'] == 'ack').single['version'], 3);
+      final beforeReconciliation = await tester.runAsync(
+        () => session.file.readAsString(),
+      );
+      final beforeModified = await tester.runAsync(
+        () async => (await session.file.stat()).modified,
+      );
       const older = '77777777-7777-4777-8777-777777777777';
       await tester.runAsync(() async {
         socket.snapshot(eventId: older);
@@ -159,6 +187,28 @@ void main() {
       expect(find.text('Participant 2'), findsOneWidget);
       expect(socket.sent.where((m) => m['eventId'] == event), hasLength(1));
       expect(socket.sent.where((m) => m['eventId'] == older), hasLength(1));
+      for (var i = 0; i < 3; i++) {
+        await tester.runAsync(() async {
+          socket.snapshot(activity: full);
+          await Future<void>.delayed(const Duration(milliseconds: 30));
+        });
+        await fixture.settle(tester);
+      }
+      expect(
+        await tester.runAsync(() => session.file.readAsString()),
+        beforeReconciliation,
+      );
+      expect(
+        await tester.runAsync(() async => (await session.file.stat()).modified),
+        beforeModified,
+      );
+      final persisted = await tester.runAsync(
+        () => GuestSession.open(session.file),
+      );
+      expect(
+        (persisted!.cached(fixture.code)!['participants'] as List).length,
+        2,
+      );
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );

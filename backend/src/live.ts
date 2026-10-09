@@ -57,7 +57,7 @@ export function attachLive(server: Server, db: Database, origin: string, options
     sub.socket.send(JSON.stringify(payload));
   }
   async function snapshot(sub: Subscriber, event?: AvailabilityEvent, shared?: ReturnType<typeof activityDetail>) {
-    const activity = await (shared ?? activityDetail(db, sub.activityId));
+    const activity = await (shared ?? activityDetail(db, sub.activityId, sub.context.inviteId ?? undefined));
     let measuredEventId = event?.eventId ?? null;
     sub.initialVersion ??= Number(activity.version);
     if (event) {
@@ -265,8 +265,9 @@ export function attachLive(server: Server, db: Database, origin: string, options
         sub.reconcileQueued = true;
         enqueue(sub, async () => {
           try {
-            let shared = snapshots.get(sub.activityId);
-            if (!shared) { shared = activityDetail(db, sub.activityId); snapshots.set(sub.activityId, shared); }
+            const key = `${sub.activityId}:${sub.context.inviteId ?? ''}`;
+            let shared = snapshots.get(key);
+            if (!shared) { shared = activityDetail(db, sub.activityId, sub.context.inviteId ?? undefined); snapshots.set(key, shared); }
             await snapshot(sub, undefined, shared);
             sub.ready = true; sub.buffered = [];
             for (const delivery of sub.deliveries.values()) {

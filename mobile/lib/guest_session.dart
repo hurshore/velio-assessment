@@ -125,6 +125,11 @@ class GuestSession {
           invalid('cache entry');
         }
         final value = entry.value as Map<String, dynamic>;
+        final participantVersion = value['participantVersion'];
+        if (participantVersion != null &&
+            (participantVersion is! int || participantVersion < 0)) {
+          invalid('participant version');
+        }
         if (value['preview'] is! Map<String, dynamic> ||
             !_absoluteTimestamp(value['savedAt']) ||
             value['participants'] is! List) {
@@ -222,9 +227,11 @@ class GuestSession {
       final draft = Map<String, dynamic>.from(_data);
       final result = change(draft);
       _validate(draft);
+      final encoded = jsonEncode(draft);
+      if (encoded == jsonEncode(_data)) return result;
       await file.parent.create(recursive: true);
       final temporary = File('${file.path}.tmp');
-      await temporary.writeAsString(jsonEncode(draft), flush: true);
+      await temporary.writeAsString(encoded, flush: true);
       await temporary.rename(file.path);
       _data
         ..clear()
@@ -256,15 +263,24 @@ class GuestSession {
     Map<String, dynamic> preview,
     List<Map<String, dynamic>> participants, {
     Map<String, dynamic>? booking,
+    int participantVersion = 0,
   }) => _update<void>((draft) {
     final cache = Map<String, dynamic>.from(draft['cache'] as Map? ?? {});
     final previous = cache[normalizeCode(code)] as Map?;
-    cache[normalizeCode(code)] = {
+    final details = {
       'preview': preview,
       'participants': participants,
-      'savedAt': utcTimestamp(DateTime.now()),
+      'participantVersion': participantVersion,
       if (booking != null || previous?['booking'] != null)
         'booking': booking ?? previous!['booking'],
+    };
+    final existing = previous == null
+        ? null
+        : (Map<String, dynamic>.from(previous)..remove('savedAt'));
+    if (existing != null && jsonEncode(existing) == jsonEncode(details)) return;
+    cache[normalizeCode(code)] = {
+      ...details,
+      'savedAt': utcTimestamp(DateTime.now()),
     };
     draft['cache'] = cache;
   });

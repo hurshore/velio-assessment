@@ -5,6 +5,8 @@ import 'dart:io';
 import 'guest_api.dart';
 import 'guest_session.dart';
 
+const liveHandshakeTimeout = Duration(seconds: 8);
+
 abstract interface class LiveSocket {
   Stream<Object?> get messages;
   void send(String message);
@@ -29,7 +31,7 @@ Future<LiveSocket> connectLive(Uri uri) async {
       await WebSocket.connect(
         uri.toString(),
         customClient: client,
-      ).timeout(const Duration(seconds: 8)),
+      ).timeout(liveHandshakeTimeout),
     );
   } finally {
     client.close(force: true);
@@ -112,7 +114,7 @@ class GuestLive {
         if (abandoned || _stopped) unawaited(socket.close());
       }, onError: (Object _) {});
       final socket = await attempt.timeout(
-        const Duration(seconds: 8),
+        liveHandshakeTimeout,
         onTimeout: () {
           abandoned = true;
           throw TimeoutException('Live connection timed out');
