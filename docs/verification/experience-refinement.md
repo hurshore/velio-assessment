@@ -2,7 +2,59 @@
 
 Executed 9 October 2026 from main `b06d3de708d16e8990c5410ea0bba00d0671c005`, in dedicated branch `feat/27-velio-experience`. The dated PLANS.md §3/§6 refinement was recorded before UI changes, preserving the original decisions. All 24 supplied PNGs (IMG_0912–IMG_0935) were individually viewed. System fonts, semantic colors and abstract activity art adapt those references without inventing activity photographs, trust scores or community totals.
 
-## Owner visual review follow-up
+## Final PR review corrections and clean demo
+
+Use the captures in **[final-demo/](experience-refinement/final-demo/)** for the final visual review. They supersede the earlier demonstration captures below, which retain historical regression-fixture names and data.
+
+Invitation creation now persists unresolved outcomes separately from active loading. Both public and vouch regressions cover an interrupted pending request and a lost response, three successive reloads without a new POST, and an explicit later creation that must not erase the earlier uncertainty. The vouch regression also checks contact editing. The four new regressions failed before the fix. Legacy saved `creating: true` records still restore the warning.
+
+Host tracking is inside “Demo guidance & tracking”; guest tracking is inside “Reviewer diagnostics.” Both disclosures are collapsed by default, with an accessible attention indicator for failures/rejections. Retry continues to send the original event ID after navigation. Booking and offline messages now use “seat confirmed,” “Retry booking,” and “original booking attempt” while preserving keys, identity ownership, live readiness and online-only claiming.
+
+### Final verification
+
+- `npm run verify` passed: typechecks, **12 tooling + 141 backend + 112 web + 49 Flutter tests = 314**, production builds and Flutter analysis.
+- After the final copy-only clarification, `npm run mobile:check` passed again: Flutter analysis and all 49 tests.
+- Actual desktop web at 1440×1000 (guest previews at 1280×720), narrow web at 390×844, and iPhone 17 / iOS 26.2 captures were inspected. Full-page web images extend beyond their viewport; native images show a scrollable viewport.
+- Real `web_handoff_test.dart` passed both rails against the separate demo API: preview before identity, invited signup, last-seat claim after a deliberately lost response, and remount recovering the identical booking with exactly one claim key.
+- Final-tree real `live_guest_test.dart` also passed both rails on the original regression API (3104): mismatched identities, lost-response recovery, tracking event retries, live participant convergence, resume, offline confirmation and reconnect. Its regression screenshots stayed in a separate temporary folder.
+- The web activity form created “Coffee, conversation & a marina walk,” with NGN 2,500 entered in normal currency units. Live web details showed both confirmed participants after native claims. Switching to the host removed the booker’s confirmation and issued link.
+
+### Isolated demonstration data
+
+Created and migrated a separate database, `velio_demo_27_564bdb2ef0`, with API port 3110 and Vite port 5176. Existing development/test databases and root environment files were unchanged. This demo process alone uses 100% treatment assignment to make both invitation rails deterministic; production experiment defaults and backend code are unchanged.
+
+The initial catalog and three identities were created through the real API with readable names and `synthetic: true, test: true`. Zainab’s bookings and both invitations were created through the actual web UI. Tunde and Lola signed up through the native invited journeys and inherited those markers. A read-only audit found **5 identities and 55 analytics events, with zero unmarked records**, before the final evidence publication. The normal regression fixture was not run against this database.
+
+| Rail | Activity | Invitation | Journey | Confirmed/recovered booking |
+|---|---|---|---|---|
+| Public | A slow morning by the water | `9W6MBCE16GB9` | `9b00a001-32ec-4fc3-bd58-6f442fefe5bb` | `3d7b4857-3c16-4c91-ac13-edfb544aec1e` |
+| Vouch | Art, coffee & good company | `3QNBM7TB9MCS` | `573c387c-203a-4413-b276-ef4a057352fb` | `94e7c267-99de-43e2-ab1b-a0b8c6b7bf89` |
+
+### Latest rendered screens
+
+| Experience | Desktop web | Narrow web |
+|---|---|---|
+| Discovery | [Explore](experience-refinement/final-demo/web-desktop-explore.jpg), [Hosting](experience-refinement/final-demo/web-desktop-hosting.jpg) | [Explore](experience-refinement/final-demo/web-narrow-explore.jpg) |
+| Activity creation | [Filled form](experience-refinement/final-demo/web-desktop-create.jpg) | [Filled form](experience-refinement/final-demo/web-narrow-create.jpg), [created detail](experience-refinement/final-demo/web-narrow-created-detail.jpg) |
+| Issued invitations | [Public link](experience-refinement/final-demo/web-desktop-public-share.jpg), [personal vouch](experience-refinement/final-demo/web-desktop-vouch-share.jpg) | Same responsive panels; original task captures below also cover the choice panels |
+| Guest invitation | [Public](experience-refinement/final-demo/web-desktop-public-preview.jpg), [vouch](experience-refinement/final-demo/web-desktop-vouch-preview.jpg) | [Vouch](experience-refinement/final-demo/web-narrow-vouch-preview.jpg), [full public invitation with recovery](experience-refinement/final-demo/web-narrow-public-full-recovery.jpg) |
+| Host after native claims | [Confirmed participants](experience-refinement/final-demo/web-desktop-host-participants.jpg) | Same live read model |
+
+| Native guest state | Public | Vouch |
+|---|---|---|
+| Preview before identity | [Preview](experience-refinement/final-demo/public-preview.png) | [Preview](experience-refinement/final-demo/vouch-preview.png) |
+| Confirmed last seat | [Confirmation](experience-refinement/final-demo/public-confirmed.png) | [Confirmation](experience-refinement/final-demo/vouch-confirmed.png) |
+| Same booking after remount | [Recovered](experience-refinement/final-demo/public-recovered.png) | [Recovered](experience-refinement/final-demo/vouch-recovered.png) |
+
+### Standards
+
+No hard violations or actionable baseline smells. The reviewer’s single wording concern was addressed in `87afd22`: an uncertain saved booking **attempt** is distinguished from a confirmed booking. Final standards review found no outstanding findings.
+
+### Spec
+
+No findings in the focused review from `c5b5950` through `87afd22`. Separate uncertainty, accessible diagnostics, original event/key ownership and plain recovery guidance meet the requested corrections. Clean database and screenshots are documented above. No assessment was submitted.
+
+## Earlier owner visual review follow-up
 
 The web wordmark now uses a small period-sized dot. Flutter keeps its existing period size and uses the same `#89CF43` mint color. Native disclosures, including Booking reference, now have a white surface and rounded outline in collapsed and expanded states, with spacing around the booking reference.
 
@@ -17,7 +69,7 @@ Full `npm run verify` passed again (12 tooling, 141 backend, 108 web and 49 Flut
 
 Identity-spacing follow-up: 16 px separates the heading from the first choice, and 12 px separates identity buttons. Both native captures were visually inspected: [public identity chooser](experience-refinement/public-identities.png), [vouch identity chooser](experience-refinement/vouch-identities.png). Flutter analysis and all 49 widget tests passed; both real iOS live/offline invitation journeys passed again with the capture-enabled final tree. Standards/specification review found no issues. Existing selection and pending-state behavior is preserved.
 
-## Executed validation
+## Earlier executed validation
 
 The three issue seams were used: rendered web UI with API/storage boundaries; Flutter widgets with API/session boundaries; and real local API/PostgreSQL/Redis/live integration. Local API used port 3104, Vite port 5175, PostgreSQL 17.6 and Redis 8.2.1. Native execution used iPhone 17 simulator, iOS 26.2.
 
@@ -29,7 +81,7 @@ The three issue seams were used: rendered web UI with API/storage boundaries; Fl
 
 The full verification command exposed an obsolete request-ID assertion after error details moved into a disclosure. The regression now verifies visible recipient guidance and opens technical details before asserting the request ID.
 
-## Both real invitation journeys
+## Earlier real invitation journeys
 
 | Run | Rail | Activity | Journey | Confirmed booking |
 |---|---|---|---|---|
@@ -48,7 +100,7 @@ VELIO_SCREENSHOT_DIR=build/review-screenshots flutter drive \
   -d <simulator-id> --dart-define=API_BASE_URL=http://127.0.0.1:3104
 ```
 
-## Rendered screens
+## Earlier rendered screens
 
 | Task/state | Desktop web | Narrow web |
 |---|---|---|
@@ -68,7 +120,7 @@ VELIO_SCREENSHOT_DIR=build/review-screenshots flutter drive \
 
 [Native code entry](experience-refinement/ios-entry.png). Screenshots preserve actual data; older synthetic activities/identity suffixes remain visible in browser fixtures. Full-page browser captures can be taller than the viewport. Native captures show the scrollable viewport, not all content at once.
 
-## Review
+## Initial implementation review
 
 The implementation skill’s two-axis review ran against the pinned main commit.
 
