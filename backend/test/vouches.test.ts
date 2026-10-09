@@ -7,6 +7,7 @@ import pg from 'pg';
 import { createApp } from '../src/app.js';
 import type { InviteConfig } from '../src/experiments.js';
 import { runMigrations } from '../src/migrations.js';
+import { contact as normalizeContact } from '../src/domain.js';
 
 // Each run owns a new database; no demo data is removed by these checks.
 const name = `velio_test_${randomUUID().replaceAll('-', '')}`;
@@ -291,8 +292,17 @@ test('database guards refuse wrong-recipient redemptions, second vouch redemptio
   const otherBooking = (await book(listing.id, other)).data.booking;
   await assert.rejects(runtime.query(`INSERT INTO invite_redemptions (id,invite_id,activity_id,inviter_id,rail,invitee_id,invitee_generation,booking_id)
     VALUES ($1,$2,$3,$4,'vouch',$5,0,$6)`, [randomUUID(), invite.id, listing.id, host, other, otherBooking.id]), /different contact/);
-  await assert.rejects(owner.query(`INSERT INTO invite_redemptions (id,invite_id,activity_id,inviter_id,rail,invitee_id,invitee_generation,booking_id)
-    VALUES ($1,$2,$3,$4,'vouch',$5,0,$6)`, [randomUUID(), invite.id, listing.id, host, recipient, otherBooking.id]), /foreign key|unique|one_vouch/);
+  // A second redemption with a different invitee and that invitee's own booking satisfies every other
+  // key. Unique contacts mean no second identity can match, so the recipient trigger is lifted for this
+  // one statement to show the single-redemption index holds by itself.
+  const second = await owner.connect();
+  try {
+    await second.query('BEGIN');
+    await second.query('ALTER TABLE invite_redemptions DISABLE TRIGGER invite_redemptions_vouch_recipient');
+    await assert.rejects(second.query(`INSERT INTO invite_redemptions (id,invite_id,activity_id,inviter_id,rail,invitee_id,invitee_generation,booking_id)
+      VALUES ($1,$2,$3,$4,'vouch',$5,0,$6)`, [randomUUID(), invite.id, listing.id, host, other, otherBooking.id]),
+    (error: { constraint?: string }) => error.constraint === 'invite_redemptions_one_vouch');
+  } finally { await second.query('ROLLBACK'); second.release(); }
   await assert.rejects(runtime.query('UPDATE invites SET recipient_contact=$1 WHERE id=$2', [contact(), invite.id]), /permission denied/);
   await assert.rejects(owner.query('UPDATE invites SET recipient_contact=$1 WHERE id=$2', [contact(), invite.id]), /append-only/);
   await assert.rejects(runtime.query('UPDATE users SET contact=$1 WHERE id=$2', [contact(), recipient]), /permission denied/);
@@ -301,4 +311,45 @@ test('database guards refuse wrong-recipient redemptions, second vouch redemptio
   await assert.rejects(runtime.query(`INSERT INTO users (id,display_name,contact,generation,acquisition_parent_id,acquisition_root_id,acquisition_invite_id,acquisition_rail)
     VALUES ($1,'Forged vouch child',$2,1,$3,$3,$4,'vouch')`, [randomUUID(), contact(), host, invite.id]), /different contact/);
   assert.equal(claimed.redemption.rail, 'vouch');
+});
+
+test('control characters, NUL and Unicode spaces in an email contact are rejected with 400 on creation and signup, while international contacts are accepted', async () => {
+  const host = (await identity()).id;
+  const listing = await activity(host, 3);
+  const rejected = ['a@b.c\u0085', 'a\u0000@b.co', 'a\u2028b@x.com', 'a\u00a0b@x.com', 'a\u200bb@x.com', 'a\u0007@x.com', 'a@x.com\u3000x', 'a\ufeffb@x.com'];
+  for (const value of rejected) {
+    const created = await vouch(listing.id, host, value);
+    assert.deepEqual([created.status, created.error.code], [400, 'INVALID_REQUEST'], JSON.stringify(value));
+    assert.match(created.error.message, /email address or phone number/);
+    const signup = await request('/identities', { displayName: 'Odd contact', journeyId: randomUUID(), platform: 'mobile', contact: value });
+    assert.deepEqual([signup.status, signup.error.code], [400, 'INVALID_REQUEST'], JSON.stringify(value));
+  }
+  const accepted = ['José@Exämple.com', 'üser@例え.jp', '+44 20 7946 0958', '08035550101'];
+  for (const value of accepted) assert.equal((await vouch(listing.id, host, value)).status, 201, value);
+  // The database check agrees with the API on both lists, so a value the API accepts never becomes a 500.
+  const { rows: checks } = await owner.query('SELECT value, is_demo_contact(value) AS ok FROM unnest($1::text[]) value',
+    [[...rejected.filter(value => !value.includes('\u0000')), 'josé@exämple.com', 'üser@例え.jp', '+442079460958']]);
+  assert.deepEqual(checks.map(row => row.ok), [...rejected.filter(value => !value.includes('\u0000')).map(() => false), true, true, true]);
+});
+
+// Every email position carries the same class in both implementations, so a change that
+// drifts on any one position fails here with the offending code point.
+test('the API contact rule and the database check agree on every BMP character in each email position', async () => {
+  const cases = [
+    ['local part', (char: string) => `a${char}b@x.co`],
+    ['domain', (char: string) => `a@x${char}.co`],
+    ['suffix', (char: string) => `a@x.c${char}o`],
+  ] as const;
+  const values: string[] = [];
+  const positionOf: string[] = [];
+  for (const [position, at] of cases)
+    for (let code = 1; code <= 0xffff; code++) if (code < 0xd800 || code > 0xdfff) {
+      values.push(at(String.fromCharCode(code)));
+      positionOf.push(position);
+    }
+  const api = values.map(value => { try { return normalizeContact(value, 'Contact') === value.toLowerCase(); } catch { return false; } });
+  const { rows } = await owner.query('SELECT is_demo_contact(lower(value)) AS ok FROM unnest($1::text[]) WITH ORDINALITY AS t(value, n) ORDER BY n', [values]);
+  const disagreements = values.flatMap((value, index) => api[index] === rows[index]!.ok ? [] :
+    [`${positionOf[index]} U+${[...value].find(ch => ch.codePointAt(0)! > 0x7f)?.codePointAt(0)?.toString(16)}`]);
+  assert.deepEqual(disagreements, []);
 });

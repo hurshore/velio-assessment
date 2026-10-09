@@ -273,6 +273,7 @@ test('identity creation sends an optional demo contact only when one is entered'
   render(<HostApp />);
   await screen.findByText('No demo identities yet. Create one to host an activity.');
   expect(screen.getByText(/contact is not verified/)).toBeTruthy();
+  expect(screen.getByText(/use the same format the inviter will enter/)).toBeTruthy();
   fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Tunde' } });
   fireEvent.change(screen.getByLabelText(/Contact for vouches/), { target: { value: ' tunde@example.com ' } });
   fireEvent.click(screen.getByRole('button', { name: 'Create demo identity' }));

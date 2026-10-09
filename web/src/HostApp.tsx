@@ -55,7 +55,7 @@ export function HostApp() {
       <form onSubmit={createIdentity}>
         <label>Display name<input name="displayName" required maxLength={100} autoComplete="nickname" /></label>
         <label>Contact for vouches (optional email or phone)<input name="contact" maxLength={254} autoComplete="off" /></label>
-        <p className="hint">A vouch can be claimed only by the identity whose contact matches it. This contact is not verified, is set once and is never shown to other people.</p>
+        <p className="hint">A vouch can be claimed only by the identity whose contact matches it. Matching ignores letter case, spaces and punctuation but nothing else, so use the same format the inviter will enter (for example, with or without a country code). This contact is not verified, is set once and is never shown to other people.</p>
         <button disabled={creating || loading || hosting}>{creating ? 'Creating identity…' : 'Create demo identity'}</button>
       </form>
     </section>

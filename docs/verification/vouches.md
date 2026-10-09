@@ -25,12 +25,23 @@ Scope: PLANS.md §§1.2, 2.2, 2.4, 2.6, 2.9, 3.4 and 4.1. Node 24.21.0 and Postg
 - **Privacy and events.** The preview returns `rail`/`trust` `vouch` and contains no contact. A duplicate `invite_opened` event ID is deduplicated. `invite_created`, `invite_opened`, `identity_created`, `invite_claim_attempted`, `booking_failed` (code `RECIPIENT_MISMATCH`) and `spot_claimed` (generation 1) all carry `rail: "vouch"`, and none contains the contact.
 - **Database guards.**
   - A runtime insert of a vouch redemption for a non-matching invitee is refused by a trigger.
-  - A second vouch redemption is refused by the partial unique index.
+  - A second vouch redemption, for a different invitee with that invitee's own booking, is refused with constraint `invite_redemptions_one_vouch`. The recipient trigger is disabled inside a rolled-back transaction for that one statement, because unique contacts mean no second identity could match. Every other key is satisfied, so the named index is what rejects the row.
   - A runtime update of `invites.recipient_contact` or `users.contact` gets permission denied.
   - A migration-role update of an invite's recipient is refused as append-only.
   - A vouch invite without a recipient fails `invites_vouch_recipient`.
   - A forged vouch-acquired user with another contact is refused by a trigger.
-- **Regression.** The public-invite suite (25 scenarios) and the booking suites pass unchanged. Its only adjustment is that the existing test still rejects a `vouch` request with no contact.
+- **Regression.** `backend/test/invites.test.ts` is unchanged and its 25 public-link scenarios pass, including distinct public guests, races, recovery, rollback, attribution and immutability. Its `rail: "vouch"` request with no contact still returns 400, now because the contact is missing rather than because the rail is unsupported.
+- **Contact validation.** These are rejected with 400 `INVALID_REQUEST` on both vouch creation and signup, instead of the previous 500 from the database check:
+  - U+0085
+  - NUL
+  - U+2028
+  - no-break space
+  - zero-width space
+  - BEL
+  - ideographic space
+  - BOM
+
+  International contacts are accepted: `José@Exämple.com`, `üser@例え.jp`, `+44 20 7946 0958`, `08035550101`. Phone input keeps its existing normalization: whitespace and punctuation are stripped before the digits-only check. A sweep of every BMP code point in each email position (local part, domain and suffix — 190,461 values) shows that `contact()` and `is_demo_contact` agree everywhere.
 - **Web.**
   - Before creation, the vouch panel explains:
     - recipient matching
@@ -43,18 +54,30 @@ Scope: PLANS.md §§1.2, 2.2, 2.4, 2.6, 2.9, 3.4 and 4.1. Node 24.21.0 and Postg
   - An empty contact is caught before any request. Server rejections keep the contact that was entered. A full activity disables creation.
   - The public panel keeps its own state.
   - The guest preview says "vouched for you" and explains recipient-bound demo matching without any contact.
-  - Identity creation sends `contact` only when one is entered.
+  - Identity creation sends `contact` only when one is entered. Both forms explain that matching ignores case, spaces and punctuation but nothing else, so the formats must match.
+  - The contact input is `aria-invalid` and described by the validation error, and focus returns to it. Creation is announced in a persistent status region.
+  - The created link is labelled "Vouch link for <contact>". Editing the contact hides it and announces that the earlier vouch remains valid until it expires.
+  - The draft, an in-flight creation (button stays disabled) and the created result survive "Refresh details", which remounts the view. Switching identity resets them. The contact is read-only while a creation is pending. A late response is ignored even after switching away and back to the same identity, because each identity session has its own token.
 
-## Commands and results (9 October 2026)
+## Commands and results (9 October 2026, after review corrections)
 
 - `npm run typecheck`: passed.
-- `npm test`: 12 root tests, 116 backend tests (10 of them vouch scenarios) and 100 web tests passed, none skipped.
+- `npm test`: passed with none skipped:
+  - 12 root tests
+  - 118 backend tests, 12 of them vouch scenarios
+  - 103 web tests
+- The public-invite, vouch and booking suites were run again together (55 tests) and passed.
 - `npm run build`: passed.
-- `npm run migrate` applied `010_recipient_bound_vouches.sql` to the existing local dev database.
-- `npm run mobile:check` was not run. No Flutter files changed in this lane.
+- `npm run mobile:check`: 13 Flutter tests passed. No Flutter files changed.
+- `npm run migrate` applied `010` and then `011` to the existing local dev database.
 
 ## Not verified here
 
 - Rendering in a real browser, and clipboard permissions.
 - Claiming a vouch in the Flutter app. Flutter identity creation also needs the optional `contact` field (#8).
 - Real contact verification. This is outside the assessment, and the demo states this on both the share panel and the preview.
+- Follow-ups not built in this correction:
+  - Invite-history management. Earlier vouches are not listed after they are replaced or hidden; they stay valid until they expire.
+  - Staged production migrations (`NOT VALID`/`CONCURRENTLY`).
+  - Phone canonicalization. Matching is exact in format.
+  - Verified contacts and rate limits against contact enumeration.

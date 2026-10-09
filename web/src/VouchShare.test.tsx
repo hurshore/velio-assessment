@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { ActivityDetails } from './ActivityDetails';
 import { ViewDelivery } from './view-delivery';
 
@@ -32,7 +32,7 @@ function setup(create: (options: RequestInit) => Promise<Response>, detail = act
 test('explains recipient matching, trust, demo limits, expiry and no reserved seat, then creates a vouch for one contact', async () => {
   const fetch = setup(async () => ok(vouch, 201));
   const panel = await screen.findByRole('group', { name: 'Vouch for a contact' });
-  for (const copy of [/only the person whose contact matches/i, /personally vouch/i, /not verified in this demo/i, /24 hours or when the activity starts/i,
+  for (const copy of [/only the person whose contact matches/i, /same format/i, /personally vouch/i, /not verified in this demo/i, /24 hours or when the activity starts/i,
     /does not reserve a seat/i, /3 of 4 seats remaining/]) {
     expect(within(panel).getByText(copy)).toBeTruthy();
   }
@@ -40,6 +40,7 @@ test('explains recipient matching, trust, demo limits, expiry and no reserved se
   fireEvent.click(within(panel).getByRole('button', { name: 'Create vouch' }));
   expect(await within(panel).findByDisplayValue(`${window.location.origin}/invite/VCHR2345EFGH`)).toBeTruthy();
   expect(within(panel).getByText('VCHR-2345-EFGH')).toBeTruthy();
+  expect(within(panel).getByRole('heading', { name: 'Vouch link for tunde@example.com' })).toBeTruthy();
   expect(within(panel).getByText(/Only tunde@example.com can claim/)).toBeTruthy();
   const [, options] = fetch.mock.calls.find(([url]) => String(url).endsWith('/invites'))!;
   expect(JSON.parse(options.body)).toEqual({ rail: 'vouch', recipientContact: 'Tunde@Example.com', platform: 'web', journeyId });
@@ -64,4 +65,91 @@ test('a full activity cannot be vouched for', async () => {
   const panel = await screen.findByRole('group', { name: 'Vouch for a contact' });
   expect(within(panel).getByText(/No seats remain/)).toBeTruthy();
   expect(within(panel).getByRole('button', { name: 'Create vouch' }).hasAttribute('disabled')).toBe(true);
+});
+
+test('validation errors are tied to the contact input and creation is announced in a persistent status region', async () => {
+  setup(async () => ok(vouch, 201));
+  const panel = await screen.findByRole('group', { name: 'Vouch for a contact' });
+  const input = within(panel).getByLabelText(/Contact's email or phone/);
+  const region = within(panel).getByRole('status');
+  fireEvent.click(within(panel).getByRole('button', { name: 'Create vouch' }));
+  const alert = await within(panel).findByRole('alert');
+  expect(input.getAttribute('aria-invalid')).toBe('true');
+  expect(input.getAttribute('aria-describedby')?.split(' ')).toContain(alert.id);
+  expect(document.activeElement).toBe(input);
+  fireEvent.change(input, { target: { value: 'tunde@example.com' } });
+  fireEvent.click(within(panel).getByRole('button', { name: 'Create vouch' }));
+  await waitFor(() => expect(region.textContent).toMatch(/Vouch created for tunde@example.com/));
+  expect(input.getAttribute('aria-invalid')).toBe('false');
+  expect(region.isConnected).toBe(true);
+});
+
+test('editing the contact hides the earlier link without implying it was revoked', async () => {
+  setup(async () => ok(vouch, 201));
+  const panel = await screen.findByRole('group', { name: 'Vouch for a contact' });
+  const input = within(panel).getByLabelText(/Contact's email or phone/);
+  fireEvent.change(input, { target: { value: 'tunde@example.com' } });
+  fireEvent.click(within(panel).getByRole('button', { name: 'Create vouch' }));
+  await within(panel).findByDisplayValue(`${window.location.origin}/invite/VCHR2345EFGH`);
+  fireEvent.change(input, { target: { value: 'kemi@example.com' } });
+  expect(within(panel).queryByDisplayValue(/VCHR2345EFGH/)).toBeNull();
+  expect(within(panel).queryByText(/Only tunde@example.com can claim/)).toBeNull();
+  expect(within(panel).getByRole('status').textContent).toMatch(/vouch for tunde@example.com was hidden.*still valid until it expires/i);
+});
+
+test('the draft, a pending creation and its result survive a details refresh, and reset when the actor changes', async () => {
+  let finish!: (response: Response) => void;
+  const fetch = vi.fn().mockImplementation((url: string, options: RequestInit) => {
+    if (url.endsWith('/events')) return Promise.resolve(ok({ id: JSON.parse(options.body as string).id, accepted: true }));
+    if (url.endsWith('/invites')) return new Promise<Response>(resolve => { finish = resolve; });
+    if (url.endsWith('/booking')) return Promise.resolve(ok({ booking: null, availability: { activityId: activity.id, planId: activity.planId, capacity: 4, confirmedCount: 1, remainingSeats: 3, version: 2 } }));
+    return Promise.resolve(ok(activity));
+  });
+  vi.stubGlobal('fetch', fetch);
+  const delivery = new ViewDelivery();
+  const view = render(<ActivityDetails id={activity.id} actorId={actorId} journeyId={journeyId} close={() => {}} delivery={delivery} />);
+  const panel = () => screen.getByRole('group', { name: 'Vouch for a contact' });
+  await screen.findByRole('group', { name: 'Vouch for a contact' });
+  fireEvent.change(within(panel()).getByLabelText(/Contact's email or phone/), { target: { value: 'tunde@example.com' } });
+  fireEvent.click(within(panel()).getByRole('button', { name: 'Create vouch' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh details' }));
+  await waitFor(() => expect(fetch.mock.calls.filter(([url]) => String(url).endsWith(activity.id)).length).toBe(2));
+  await screen.findByRole('group', { name: 'Vouch for a contact' });
+  expect(within(panel()).getByDisplayValue('tunde@example.com')).toBeTruthy();
+  expect(within(panel()).getByRole('button', { name: 'Creating vouch…' }).hasAttribute('disabled')).toBe(true);
+  finish(ok(vouch, 201));
+  expect(await within(panel()).findByDisplayValue(`${window.location.origin}/invite/VCHR2345EFGH`)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh details' }));
+  await waitFor(() => expect(fetch.mock.calls.filter(([url]) => String(url).endsWith(activity.id)).length).toBe(3));
+  expect(await within(panel()).findByDisplayValue(`${window.location.origin}/invite/VCHR2345EFGH`)).toBeTruthy();
+  view.rerender(<ActivityDetails id={activity.id} actorId="66666666-6666-4666-8666-666666666666" journeyId={journeyId} close={() => {}} delivery={delivery} />);
+  await waitFor(() => expect(within(panel()).queryByDisplayValue(/VCHR2345EFGH|tunde@example.com/)).toBeNull());
+  expect(within(panel()).getByRole('button', { name: 'Create vouch' }).hasAttribute('disabled')).toBe(false);
+});
+
+test('a response that arrives after switching identity away and back does not appear in the new session', async () => {
+  let finish!: (response: Response) => void;
+  vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options: RequestInit) => {
+    if (url.endsWith('/events')) return Promise.resolve(ok({ id: JSON.parse(options.body as string).id, accepted: true }));
+    if (url.endsWith('/invites')) return new Promise<Response>(resolve => { finish = resolve; });
+    if (url.endsWith('/booking')) return Promise.resolve(ok({ booking: null, availability: { activityId: activity.id, planId: activity.planId, capacity: 4, confirmedCount: 1, remainingSeats: 3, version: 2 } }));
+    return Promise.resolve(ok(activity));
+  }));
+  const delivery = new ViewDelivery();
+  const details = (actor: string) => <ActivityDetails id={activity.id} actorId={actor} journeyId={journeyId} close={() => {}} delivery={delivery} />;
+  const view = render(details(actorId));
+  const panel = () => screen.getByRole('group', { name: 'Vouch for a contact' });
+  await screen.findByRole('group', { name: 'Vouch for a contact' });
+  const input = within(panel()).getByLabelText(/Contact's email or phone/);
+  fireEvent.change(input, { target: { value: 'tunde@example.com' } });
+  fireEvent.click(within(panel()).getByRole('button', { name: 'Create vouch' }));
+  expect(within(panel()).getByLabelText(/Contact's email or phone/).hasAttribute('readonly')).toBe(true);
+  view.rerender(details('66666666-6666-4666-8666-666666666666'));
+  await screen.findByRole('button', { name: 'Create vouch' });
+  view.rerender(details(actorId));
+  await screen.findByRole('button', { name: 'Create vouch' });
+  finish(ok(vouch, 201));
+  await new Promise(resolve => setTimeout(resolve, 20));
+  expect(within(panel()).queryByDisplayValue(/VCHR2345EFGH/)).toBeNull();
+  expect(within(panel()).getByRole('status').textContent).toBe('');
 });
