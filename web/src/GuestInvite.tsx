@@ -1,3 +1,4 @@
+import { followRoute, navigate } from './navigation';
 import { ErrorNotice } from './ErrorNotice';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ViewDeliveryStatus } from './ViewDeliveryStatus';
@@ -6,11 +7,6 @@ import { api, ApiError, appLink, formatPrice, groupedCode, isInviteCode, journey
 
 type Load = { status: 'idle' } | { status: 'loading' } | { status: 'invalid' } | { status: 'error'; message: string } | { status: 'ready'; preview: InvitePreview };
 
-// Pushes a history entry and notifies App, which follows the URL through popstate.
-function navigate(path: string) {
-  window.history.pushState(null, '', path);
-  window.dispatchEvent(new PopStateEvent('popstate'));
-}
 const headingFor = (load: Load) => load.status === 'ready' ? 'invite-heading' : load.status === 'error' ? 'invite-error' : 'code-heading';
 
 export function GuestInvite({ code: urlCode }: { code: string }) {
@@ -72,7 +68,7 @@ export function GuestInvite({ code: urlCode }: { code: string }) {
         <button disabled={load.status === 'loading'}>View invitation</button>
       </form>
     </section> : null}
-<a className="text-link" href="/invite">Try another code</a><ViewDeliveryStatus delivery={delivery} />
+<a className="text-link" href="/invite" onClick={event => followRoute(event, "/invite")}>Try another code</a><ViewDeliveryStatus delivery={delivery} />
   </>;
 }
 

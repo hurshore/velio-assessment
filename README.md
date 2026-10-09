@@ -75,7 +75,7 @@ Process health remains 200 during dependency outages; readiness returns a safe r
 
 ## Create and inspect an activity
 
-Open the web, select a seeded demo host or create an organic identity, and fill the activity form. The selection and anonymous journey survive reload in browser storage; identities themselves persist in PostgreSQL. Demo identity selection is not production authentication. Date/time entry uses the explicitly labelled device timezone; the IANA display timezone previews the same absolute instant. Capacity is a positive integer. Prices use non-negative minor units and an explicit currency (no payment).
+Open the web, select a seeded demo host or create an organic identity, then choose **Host an activity** and fill the activity form. The selection and anonymous journey survive reload in browser storage; identities themselves persist in PostgreSQL. Demo identity selection is not production authentication. Date/time entry uses the explicitly labelled device timezone; the IANA display timezone previews the same absolute instant. Capacity is a positive integer. Enter non-negative prices in normal currency units with an explicit currency; the form converts exactly to integer minor units using that currency’s fractional precision (no payment).
 
 Creation shows a pending discovery row, then authoritative details with its shared plan, remaining seats and booking-derived participants. Rejection removes the pending row and preserves inputs. After an uncertain network response, refresh discovery before retrying. Activity details subscribe to live snapshots and show connection/stale state; a displayed seat is never reserved. Hosting alone consumes no seat.
 

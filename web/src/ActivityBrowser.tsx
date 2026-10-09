@@ -81,6 +81,12 @@ export function ActivityBrowser({ actorId, journeyId, setHosting, delivery, requ
     } catch (error) { setFormError(message(error)); }
     finally { setPending(null); setHosting(false); }
   }
+  const now = Date.now();
+  const isBookable = (activity: Activity) => activity.status === 'scheduled' &&
+    activity.remainingSeats > 0 && Date.parse(activity.startsAt) > now;
+  const visibleActivities = activities
+    .filter(activity => !hosting || (actorId && activity.hostId === actorId))
+    .sort((a, b) => Number(isBookable(b)) - Number(isBookable(a)) || Date.parse(a.startsAt) - Date.parse(b.startsAt));
   return <>
     <div hidden={!creating}>
     <button className="secondary" onClick={() => navigate('/hosting')}>← Back to hosting</button>
@@ -122,7 +128,7 @@ export function ActivityBrowser({ actorId, journeyId, setHosting, delivery, requ
       {!loading && !listError && !activities.length && !pending ? <p>No activities yet. Be the first to host one.</p> : null}
       <ul className="activities">
         {pending ? <li role="status">{pending.title} — Saving…</li> : null}
-        {activities.filter(activity => !hosting || (actorId && activity.hostId === actorId)).sort((a, b) => Number(b.status === 'scheduled' && b.remainingSeats > 0 && Date.parse(b.startsAt) > Date.now()) - Number(a.status === 'scheduled' && a.remainingSeats > 0 && Date.parse(a.startsAt) > Date.now()) || Date.parse(a.startsAt) - Date.parse(b.startsAt)).map((activity, index) => <li key={activity.id}>
+        {visibleActivities.map((activity, index) => <li key={activity.id}>
           <a className="activity-card" href={`/activities/${activity.id}`} onClick={event => followRoute(event, `/activities/${activity.id}`)}>
           <div className={`activity-art art-${index % 3}`} aria-hidden="true"><span>✳</span></div>
           <div className="card-content"><span className="badge">{activityStatus(activity)}</span><h3>{activity.title}</h3><p>{activity.meetingLocation}</p><p className="hint">{displayTime(activity.startsAt, activity.timezone)}</p><div className="card-footer"><strong>{formatPrice(activity.priceMinor, activity.currency)}</strong><span>View activity ↗</span></div></div></a>

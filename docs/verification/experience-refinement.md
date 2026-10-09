@@ -6,7 +6,7 @@ Executed 9 October 2026 from main `b06d3de708d16e8990c5410ea0bba00d0671c005`, in
 
 The three issue seams were used: rendered web UI with API/storage boundaries; Flutter widgets with API/session boundaries; and real local API/PostgreSQL/Redis/live integration. Local API used port 3104, Vite port 5175, PostgreSQL 17.6 and Redis 8.2.1. Native execution used iPhone 17 simulator, iOS 26.2.
 
-- `npm run verify`: typechecks, repository tooling tests, backend tests, web tests, production builds, Flutter analyze and widget tests.
+- `npm run verify`: passed typechecks, 12 repository tooling tests, 141 backend tests, 108 web tests, production builds, Flutter analyze and 49 widget tests.
 - `PORT=3104 npm run smoke`: health and readiness passed with PostgreSQL/Redis ready.
 - Real iOS `integration_test/web_handoff_test.dart`: both browser-created rails recovered the committed booking after a deliberately lost claim response, with the same booking and request key after remount.
 - Real iOS `integration_test/live_guest_test.dart`: both rails previewed before identity, rejected mismatched identities, claimed, retained event IDs on retry, refreshed live participants, resumed, recovered the same booking/cache offline and reconnected. Fresh anonymous full previews retained a recovery path.
@@ -52,6 +52,15 @@ VELIO_SCREENSHOT_DIR=build/review-screenshots flutter drive \
 | Offline recovered booking | [Offline](experience-refinement/public-offline-recovered.png) | [Offline](experience-refinement/vouch-offline-recovered.png) |
 
 [Native code entry](experience-refinement/ios-entry.png). Screenshots preserve actual data; older synthetic activities/identity suffixes remain visible in browser fixtures. Full-page browser captures can be taller than the viewport. Native captures show the scrollable viewport, not all content at once.
+
+## Review
+
+The implementation skill’s two-axis review ran against the pinned main commit.
+
+- Standards: no hard violations; one optional duplicated bookability predicate was simplified into a named predicate and an ordered visible-activity list with a single comparison time.
+- Spec: fixed the “Try another code” document reload that could discard failed view-delivery retries, and corrected older README instructions that still described minor-unit price entry. The new rendered-UI regression failed before the navigation fix and verifies retry of the identical original event after navigating to code entry. The corrected navigation was also inspected in the actual browser.
+
+All three findings were addressed before publication. Existing recovery, live and identity tests remain behavioral assertions rather than screenshots alone.
 
 ## Limits
 
