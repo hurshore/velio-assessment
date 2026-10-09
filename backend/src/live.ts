@@ -3,14 +3,16 @@ import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
 import { activityDetail } from './activities.js';
-import { DomainError, exact, object, rows, uuid, type Database } from './domain.js';
+import { DomainError, exact, object, platform, rows, uuid, type Database } from './domain.js';
 import { reportFailure, type FailureReporter } from './diagnostics.js';
 import type { AvailabilityEvent } from './outbox.js';
 import { recoverDelivery, saveAck, saveObservation, type DeliveryClock, type Observation, type Timing } from './live-store.js';
+import { resolveInvite } from './invites.js';
 
 interface Delivery extends DeliveryClock { saved: Promise<void> }
 interface Subscriber {
   socket: WebSocket; connectionId: string; clientId: string; activityId: string; foreground: boolean;
+  context: { platform: string; journeyId: string; actorId: string | null; inviteId: string | null };
   initialVersion?: number; ready: boolean; buffered: AvailabilityEvent[]; deliveries: Map<string, Delivery>; running: Promise<void>; queued: number; reconcileQueued: boolean;
 }
 interface PendingObservation extends Observation { subscribers: Subscriber[]; saving: boolean }
@@ -159,11 +161,19 @@ export function attachLive(server: Server, db: Database, origin: string, options
         const message = object(JSON.parse(data.toString()));
         if (socket.readyState !== WebSocket.OPEN) return;
         if (message.type === 'subscribe' && !sub) {
-          exact(message, ['type','clientId','activityId','foreground']);
+          exact(message, ['type','clientId','activityId','foreground','platform','journeyId','actorId','inviteCode']);
           if (typeof message.foreground !== 'boolean') throw new Error('Foreground must be boolean');
+          const clientId = uuid(message.clientId, 'Client').toLowerCase();
+          const activityId = uuid(message.activityId, 'Activity').toLowerCase();
+          const actorId = message.actorId === undefined ? null : uuid(message.actorId, 'Identity').toLowerCase();
+          if (actorId && !(await rows(db, 'SELECT 1 FROM users WHERE id=$1', [actorId])).length) throw new Error('Unknown identity');
+          const invite = message.inviteCode === undefined ? null : await resolveInvite(db, message.inviteCode);
+          if (invite && invite.activityId !== activityId) throw new Error('Invite activity mismatch');
+          const context = { platform: message.platform === undefined ? 'web' : platform(message.platform),
+            journeyId: message.journeyId === undefined ? clientId : uuid(message.journeyId, 'Journey').toLowerCase(), actorId, inviteId: invite?.id ?? null };
           await register();
-          sub = { socket, connectionId: randomUUID(), clientId: uuid(message.clientId, 'Client').toLowerCase(),
-            activityId: uuid(message.activityId, 'Activity').toLowerCase(), foreground: message.foreground === true,
+          sub = { socket, connectionId: randomUUID(), clientId, context,
+            activityId, foreground: message.foreground === true,
             ready: false, buffered: [], deliveries: new Map(), running: Promise.resolve(), queued: 0, reconcileQueued: false };
           subscribers.add(sub); clearTimeout(handshake);
           // Register/buffer before reading; the initial version filters subsequent proxy deliveries only.
@@ -194,7 +204,7 @@ export function attachLive(server: Server, db: Database, origin: string, options
           let pending = acknowledgements.get(key);
           if (!pending) {
             if (acknowledgements.size >= maxPendingObservations) { failed(new Error('ACK persistence queue is full')); return; }
-            pending = { context: { processId, connectionId: sub.connectionId, clientId: sub.clientId, delivery, version: Number(message.version), receivedClock, receivedAt }, saving: false };
+            pending = { context: { processId, connectionId: sub.connectionId, clientId: sub.clientId, ...sub.context, delivery, version: Number(message.version), receivedClock, receivedAt }, saving: false };
             acknowledgements.set(key,pending);
           }
           await persistAcknowledgement(key,pending);

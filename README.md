@@ -165,3 +165,5 @@ Identities can be created with an optional demo contact (set once, never shown t
 Because contacts are unique and identities unauthenticated, anyone can discover whether a contact is registered. Matching is a demo simulation, not access control; production contact verification is out of scope.
 
 Focused verification: `node --env-file=.env --import tsx --test backend/test/vouches.test.ts` and `npm run test --workspace web -- src/VouchShare.test.tsx src/GuestInvite.test.tsx src/HostApp.test.tsx`. Evidence: [the vouch report](docs/verification/vouches.md). Contract: [vouches](docs/contracts/api.md#vouches-issue-6).
+
+Issue #9 completes the Flutter vouch/live/offline slice: matching demo contacts, live participants and versioned ACKs, saved invitation/activity/confirmation details, foreground refresh and preserved uncertain claims. New offline claims are never queued. [Mobile guide](mobile/README.md) and [executed native/event evidence](docs/verification/flutter-live-recovery.md).

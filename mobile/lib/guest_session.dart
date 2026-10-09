@@ -62,6 +62,14 @@ class GuestSession {
   String? get journeyId => _data['journeyId'] as String?;
   String get code => _data['code'] as String? ?? '';
   String get displayName => _data['displayName'] as String? ?? '';
+  String get contact => _data['contact'] as String? ?? '';
+  Map<String, dynamic>? cached(String code) {
+    final value = (_data['cache'] as Map?)?[normalizeCode(code)];
+    return value == null ? null : Map<String, dynamic>.from(value as Map);
+  }
+
+  List<String> get pendingClaims =>
+      List<String>.from(_data['pendingClaims'] as List? ?? []);
   String? get actorId => _data['actorId'] as String?;
   List<Map<String, dynamic>> get pendingEvents =>
       (_data['events'] as List? ?? [])
@@ -94,6 +102,25 @@ class GuestSession {
       invalid('displayName');
     }
     final keys = data['claimKeys'] ?? <String, dynamic>{};
+    if (data.containsKey('contact') &&
+        (data['contact'] is! String ||
+            (data['contact'] as String).length > 254)) {
+      invalid('contact');
+    }
+    if (data.containsKey('cache')) {
+      if (data['cache'] is! Map<String, dynamic>) invalid('cache');
+      for (final entry in (data['cache'] as Map<String, dynamic>).entries) {
+        if (!isCode(entry.key) || entry.value is! Map<String, dynamic>) {
+          invalid('cache entry');
+        }
+        final value = entry.value as Map<String, dynamic>;
+        if (value['preview'] is! Map<String, dynamic> ||
+            !_absoluteTimestamp(value['savedAt']) ||
+            value['participants'] is! List) {
+          invalid('cached details');
+        }
+      }
+    }
     if (keys is! Map<String, dynamic>) invalid('claimKeys');
     if (data.containsKey('claimKeys') && data['claimKeys'] == null) {
       invalid('claimKeys');
@@ -211,6 +238,25 @@ class GuestSession {
 
   Future<void> saveName(String value) =>
       _update<void>((draft) => draft['displayName'] = value);
+  Future<void> saveContact(String value) =>
+      _update<void>((draft) => draft['contact'] = value);
+  Future<void> saveDetails(
+    String code,
+    Map<String, dynamic> preview,
+    List<Map<String, dynamic>> participants, {
+    Map<String, dynamic>? booking,
+  }) => _update<void>((draft) {
+    final cache = Map<String, dynamic>.from(draft['cache'] as Map? ?? {});
+    final previous = cache[normalizeCode(code)] as Map?;
+    cache[normalizeCode(code)] = {
+      'preview': preview,
+      'participants': participants,
+      'savedAt': utcTimestamp(DateTime.now()),
+      if (booking != null || previous?['booking'] != null)
+        'booking': booking ?? previous!['booking'],
+    };
+    draft['cache'] = cache;
+  });
   Future<void> selectActor(String id) =>
       _update<void>((draft) => draft['actorId'] = id);
 

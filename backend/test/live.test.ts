@@ -105,14 +105,14 @@ async function fixture(capacity = 3) {
 }
 function book(activityId: string, actorId: string) { return request(`/activities/${activityId}/bookings`, { platform: 'web', journeyId: randomUUID() }, actorId); }
 interface Snapshot { type: string; activityId: string; eventId: string | null; version: number; confirmedCount: number; remainingSeats: number; activity: { participants: unknown[] } }
-async function connect(activityId: string, api = base, foreground = true, clientId: string = randomUUID(), waitSnapshot = true) {
+async function connect(activityId: string, api = base, foreground = true, clientId: string = randomUUID(), waitSnapshot = true, context: Record<string, unknown> = {}) {
   const socket = new WebSocket(api.replace('http:', 'ws:').replace('/api', '/api/live'), { origin });
   clients.push(socket);
   const messages: Snapshot[] = [];
   socket.on('message', value => messages.push(JSON.parse(value.toString())));
   socket.on('error', () => {});
   await once(socket, 'open');
-  socket.send(JSON.stringify({ type: 'subscribe', activityId, clientId, foreground }));
+  socket.send(JSON.stringify({ type: 'subscribe', activityId, clientId, foreground, ...context }));
   if (waitSnapshot) await until(() => messages.some(m => m.type === 'snapshot'));
   return { socket, messages, clientId };
 }
@@ -553,4 +553,34 @@ test('ACK storage failure preserves its arrival clock and does not interrupt cur
   } finally { await owner.query('DROP TRIGGER fail_ack ON live_deliveries; DROP FUNCTION fail_ack_write()'); }
   await until(async ()=>(await owner.query('SELECT ack_at,delay_ms FROM live_deliveries WHERE event_id=$1',[eventId])).rows.some(row=>row.ack_at && row.delay_ms<2000));
   client.socket.terminate();
+});
+
+
+test('mobile ACKs keep the guest journey and derive vouch lineage and assignment without contacts', async () => {
+  const host = await actor();
+  let activity: any;
+  for (let attempt = 0; attempt < 30; attempt++) {
+    activity = (await request('/activities', { title: 'Mobile vouch live test', description: 'Marked fixture', meetingLocation: 'Marina',
+      startsAt: '2030-01-15T07:00:00Z', timezone: 'Africa/Lagos', capacity: 2, priceMinor: 0, currency: 'NGN' }, host)).data;
+    if (activity.assignment.variant === 'treatment') break;
+  }
+  assert.equal(activity.assignment.variant, 'treatment');
+  const contact = `live-${randomUUID()}@example.com`;
+  const invite = (await request(`/activities/${activity.id}/invites`, { rail: 'vouch', recipientContact: contact, platform: 'web', journeyId: randomUUID() }, host)).data;
+  const journeyId = randomUUID();
+  const guest = (await request('/identities', { displayName: 'Mobile recipient', contact, inviteCode: invite.code, journeyId, platform: 'mobile' })).data;
+  const mobile = await connect(activity.id, base, true, randomUUID(), true, { platform: 'mobile', journeyId, actorId: guest.id, inviteCode: invite.code });
+  const result = await request(`/invites/${invite.code}/claims`, { platform: 'mobile', journeyId }, guest.id);
+  assert.equal(result.status, 201);
+  await until(() => mobile.messages.some(m => m.eventId && m.version === 2));
+  const update = mobile.messages.find(m => m.eventId && m.version === 2)!;
+  ack(mobile.socket, update); ack(mobile.socket, update);
+  await until(async () => (await owner.query("SELECT 1 FROM analytics_events WHERE name='availability_applied' AND journey_id=$1", [journeyId])).rowCount === 1);
+  const { rows: applied } = await owner.query("SELECT * FROM analytics_events WHERE name='availability_applied' AND journey_id=$1", [journeyId]);
+  assert.equal(applied.length, 1);
+  assert.equal(applied[0].platform, 'mobile'); assert.equal(applied[0].actor_id, guest.id); assert.equal(applied[0].invite_id, invite.id);
+  assert.equal(applied[0].context.rail, 'vouch'); assert.equal(applied[0].context.generation, 1);
+  assert.deepEqual(applied[0].context.assignment, activity.assignment);
+  assert.equal(JSON.stringify(applied).includes(contact), false);
+  mobile.socket.terminate();
 });

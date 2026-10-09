@@ -353,3 +353,19 @@ test('the API contact rule and the database check agree on every BMP character i
     [`${positionOf[index]} U+${[...value].find(ch => ch.codePointAt(0)! > 0x7f)?.codePointAt(0)?.toString(16)}`]);
   assert.deepEqual(disagreements, []);
 });
+
+test('recipient checks reveal only a match and allow the mobile directory to select the saved contact', async () => {
+  const host = await identity();
+  const recipientContact = contact();
+  const recipient = await identity({ contact: recipientContact.toUpperCase() });
+  const outsider = await identity();
+  const listing = await activity(host.id);
+  const invite = await vouch(listing.id, host.id, recipientContact);
+  const path = `/invites/${invite.data.code}/recipient-check`;
+  assert.equal((await request(path)).status, 401);
+  assert.deepEqual((await request(path, undefined, recipient.id)).data, { matches: true });
+  assert.deepEqual((await request(path, undefined, outsider.id)).data, { matches: false });
+  assert.equal((await request(`/activities/${listing.id}`)).data.confirmedCount, 0);
+  await claim(invite.data.code, recipient.id);
+  assert.deepEqual((await request(path, undefined, recipient.id)).data, { matches: true });
+});
