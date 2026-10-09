@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { rows, type Database } from './domain.js';
 import type { BookingDatabase } from './bookings.js';
-import { deliveryTargetMs, maxReportRows, maxReportDetails } from './live-policy.js';
+import { deliveryTargetMs, liveMinObservedBookingUpdates, maxReportRows, maxReportDetails } from './live-policy.js';
+import { sampleStatus } from './metric-policy.js';
 import { parseReportingWindow, unmarked, windowParameters, withReportSnapshot, type ReportingWindow } from './reporting.js';
 
 interface Sample { timing: string; eventId: string; clientId: string | null; expected: number; ackAt: Date | null; delay: number | null; expired: boolean }
@@ -84,6 +85,9 @@ export async function liveDeliveryReport(db: Database, window: ReportingWindow, 
     const onTime = total.acknowledged-total.delays.filter(delay => delay > deliveryTargetMs).length;
     return { timing, latencyBasis: 'ACK-only; missing ACKs have incomplete/no-data latency and remain in denominators',
       observedBookings: observed.size, bookingsWithSubscribers: bookings.size, expectedClients: clients.size,
+      // Zero-demand observations cannot establish the subscribed-client latency target.
+      analysis: { status: sampleStatus(bookings.size, liveMinObservedBookingUpdates),
+        observedBookingUpdates: bookings.size, minObservedBookingUpdates: liveMinObservedBookingUpdates },
       expectedDeliveries: total.expected, acknowledged: total.acknowledged, onTimeAcknowledged: onTime, deliveryMisses: total.misses, pending: total.pending,
       eventualAckCoverage: total.expected ? total.acknowledged/total.expected : null,
       onTimeCoverage: total.expected ? onTime/total.expected : null,

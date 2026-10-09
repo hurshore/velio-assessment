@@ -1,5 +1,6 @@
 // One target for deadlines, retention and reporting; timing bases remain distinct.
 export const deliveryTargetMs = 2000;
+export const liveMinObservedBookingUpdates = 50;
 export const reconcileBatchSize = 100;
 export const maxLiveConnections = 1000;
 export const maxSubscriberQueue = 256;

@@ -1,6 +1,6 @@
 # Velio assessment
 
-Runnable Express/TypeScript API, React/TypeScript/Vite host/booker web client, and Flutter public-invitation guest client. [PLANS.md](PLANS.md) is the product and technical specification. The web supports persistent organic demo identities, activity creation/discovery/details, committed seat booking/recovery, durable rendered-view events, public share links and recipient-bound contact vouches with a responsive guest preview, and attributed invite claims through the shared booking API. Live availability, committed participants, delivery recovery, operational delivery metrics, and the queryable technical/product metrics and holdout outcomes are implemented. Flutter supports installed-app links/code entry, preview before identity, public claims, persistent request/event recovery and confirmed-success haptics. Flutter vouches and mobile live/offline recovery remain #9.
+Runnable Express/TypeScript API, React/TypeScript/Vite host/booker web client, and Flutter invitation guest client. [PLANS.md](PLANS.md) is the product and technical specification. The web supports persistent organic demo identities, activity creation/discovery/details, committed seat booking/recovery, durable rendered-view events, public share links and recipient-bound contact vouches with a responsive guest preview, and attributed invite claims through the shared booking API. Live availability, committed participants, delivery recovery, operational delivery metrics, and the queryable technical/product metrics and holdout outcomes are implemented. Flutter supports both public links and recipient-bound vouches, installed-app links/code entry, preview before identity, persistent cache and request/event recovery, live participants, foreground refresh and confirmed-success haptics.
 
 ## Toolchains
 
@@ -67,11 +67,11 @@ For a physical phone, opt in with `HOST=0.0.0.0 npm run dev` and `API_BASE_URL=h
 
 - `backend/`: Express API and SQL migration runner, node-postgres and Redis connections.
 - `web/`: React/Vite demo identity and host activity flow, npm workspace.
-- `mobile/`: Flutter public-invite guest journey, its own Dart dependencies/commands.
+- `mobile/`: Flutter public/vouch guest journey, its own Dart dependencies/commands.
 - `docker-compose.yml`: PostgreSQL/Redis with health checks.
-- [Initial shared contracts](docs/contracts/api.md): envelopes/errors, identity/idempotency, rail/ancestry, journey/events, versioned availability. Health, organic identity, activity discovery/creation/details and narrow rendered-view ingestion routes exist now.
+- [Initial shared contracts](docs/contracts/api.md): envelopes/errors, identity/idempotency, rail/ancestry, journey/events, versioned availability. Identity, activity, booking, both invitation rails, live snapshots/ACKs and rendered-event ingestion share these contracts.
 
-Process health remains 200 during dependency outages; readiness returns a safe retryable 503. Probes are bounded and API responses do not disclose dependency credentials. Flutter vouches and mobile cache/live recovery, product metrics, and `OWNERSHIP.md` remain in subsequent plan tickets. Booking evidence is in [the booking report](docs/verification/seat-booking.md). Host activity evidence is in [the slice verification report](docs/verification/host-activities.md).
+Process health remains 200 during dependency outages; readiness returns a safe retryable 503. Probes are bounded and API responses do not disclose dependency credentials. Both Flutter invitation rails, mobile cache/live recovery, product metrics, and [the ownership decision](OWNERSHIP.md) are implemented. [Final handoff evidence](docs/verification/final-handoff.md) records integrated verification and production limitations. Booking evidence is in [the booking report](docs/verification/seat-booking.md). Host activity evidence is in [the slice verification report](docs/verification/host-activities.md).
 
 ## Create and inspect an activity
 
@@ -129,7 +129,7 @@ Opening activity details subscribes to `/api/live` and refreshes counts and part
 
 The dispatcher leases durable booking-owned outbox rows, publishes to `velio:group-bookings:v1:availability`, and retries failed publication outside the booking transaction. Duplicate deliveries are expected. Clients apply newer versions and ACK only after rendering; old versions cannot undo counts or membership. Redis failure does not undo a committed booking.
 
-[Live delivery metrics](http://127.0.0.1:3000/api/metrics/live) separate exact single-process commit-observed timing from outbox-creation **pre-commit proxy** recovery timing. Each group labels ACK-only per-booking and pooled p95, includes actual per-client quantiles and fully missed clients/bookings with no-data latency, and reports expected/acknowledged deliveries, pending updates, misses, eventual ACK coverage and on-time coverage. Reporting defaults to 24 hours (maximum seven days), bounds detail and explicitly marks partial reports. Disconnected/missing ACKs remain in the denominator. Synthetic/test scenarios are excluded unless `?includeTest=true`. No-data results are null; a fast successful sample does not establish every-client attainment. Exact multi-node timing correlation remains a follow-up.
+[Live delivery metrics](http://127.0.0.1:3000/api/metrics/live) separate exact single-process commit-observed timing from outbox-creation **pre-commit proxy** recovery timing. Each group labels ACK-only per-booking and pooled p95, includes actual per-client quantiles and fully missed clients/bookings with no-data latency, and reports expected/acknowledged deliveries, pending updates, misses, eventual ACK coverage and on-time coverage. Reporting defaults to 24 hours (maximum seven days), bounds detail and explicitly marks partial reports. Disconnected/missing ACKs remain in the denominator. Synthetic/test scenarios are excluded unless `?includeTest=true`. Each timing group also reports `analysis.status` (`no_data`, `insufficient_sample`, `observed`) against 50 booking updates with subscribers. Zero-subscriber observations do not satisfy that threshold. Sample sufficiency is separate from latency/coverage: a fast successful sample does not establish every-client attainment; recurring misses require investigation even below 50 updates. Exact multi-node timing correlation remains a follow-up.
 
 Focused checks: `node --env-file=.env --import tsx --test backend/test/live.test.ts` and `npm test --workspace web -- --run src/LiveActivity.test.tsx src/SeatBooking.test.tsx`. The service suite owns a temporary database and two actual API processes; a TCP proxy interrupts only their Redis connections. It exercises publication retries, periodic recovery, subscription races, API restart, missing/late ACKs and 50 overlapping bookings. [Verification and timing limitations](docs/verification/live-availability.md).
 
@@ -143,7 +143,7 @@ The summary reports:
 - logical-intent reliability, S/(S+F) with the conservative S/(S+F+U) companion, keeping replay-only, sold-out and invalid intents visible but outside the rates;
 - live-delivery headline figures computed by the same function as `/api/metrics/live`.
 
-The product report computes booker-to-inviter share, open-to-claim conversion, K by frozen acquisition rail and the treatment/control holdout comparison. Each block carries counts, Wilson or Welch 95% intervals, the target/trigger from `backend/src/metric-policy.ts`, and a `no_data`/`insufficient_sample`/`observed` status that never fabricates 0%. Conversion uses deduplicated `(invite, journey)` units from the `metric_invite_open_units` SQL view, which documents how client open times are clamped and how much clock skew a claim may absorb. Synthetic/test data stays out of windowed metrics unless `includeTest=true`.
+The product report computes booker-to-inviter share, open-to-claim conversion, K by frozen acquisition rail and the treatment/control holdout comparison. Each block carries counts; mature booker and eligible-open rates carry Wilson 95% intervals, and the holdout participant difference carries a Welch-style interval. Blocks report the target/trigger from `backend/src/metric-policy.ts`, and explicit sample/window statuses that never fabricate an empty-cohort 0%. Conversion uses deduplicated `(invite, journey)` units from the `metric_invite_open_units` SQL view, which documents how client open times are clamped and how much clock skew a claim may absorb. Synthetic/test data stays out of windowed metrics unless `includeTest=true`.
 
 Each report runs on one pooled connection in a read-only snapshot, two reports at a time, with the API's 1.5s statement deadline. Measured locally, a 7-day `/product` report takes about 0.27s with 525k events and 0.79s with 1.3M; at 2.6M events the full-history open scan exceeds the deadline and returns a retryable 500. See [the verification report](docs/verification/product-metrics.md) for these numbers and the deferred fix.
 
@@ -162,9 +162,9 @@ The API claim (`POST /api/invites/:code/claims`) runs inside the shared booking 
 Focused verification: `node --env-file=.env --import tsx --test backend/test/invites.test.ts` and `npm run test --workspace web -- src/PublicShare.test.tsx src/GuestInvite.test.tsx`. Evidence: [the public invitation report](docs/verification/public-invites.md). Contract: [public invitations](docs/contracts/api.md#public-invitations-issue-5).
 
 
-## Flutter public invitation journey
+## Flutter invitation journey
 
-Run the app, enter the shared code or open `velio://invite/<code>?journey=<UUID>`, and inspect the public invitation before choosing a demo identity. Claim one seat and wait for the committed plan confirmation. The app stores identity, journey, event IDs and actor/code request keys across restart. An uncertain response checks existing membership and retains the key for retry; full/expired previews still allow an existing identity to recover confirmation. Haptics follow confirmed success only. Details show fetched availability; live subscriptions and the offline details cache belong to #9.
+Run the app, enter the shared code or open `velio://invite/<code>?journey=<UUID>`, and inspect the public invitation before choosing a demo identity. Claim one seat and wait for the committed plan confirmation. The app stores identity, journey, event IDs and actor/code request keys across restart. An uncertain response checks existing membership and retains the key for retry; full/expired previews still allow an existing identity to recover confirmation. Haptics follow confirmed success only. Details and confirmed participants subscribe live; saved offline context is read-only with stale labels and refreshes on foreground/reconnection.
 
 [Mobile setup, link commands and recovery](mobile/README.md). [Simulator and event evidence](docs/verification/flutter-public-invites.md). With the API and an iOS simulator running, `node scripts/check-mobile-guest.mjs <simulator-id>` exercises the native route and real claim/recovery. Accept iOS's app-opening prompt when shown.
 
@@ -185,3 +185,39 @@ Because contacts are unique and identities unauthenticated, anyone can discover 
 Focused verification: `node --env-file=.env --import tsx --test backend/test/vouches.test.ts` and `npm run test --workspace web -- src/VouchShare.test.tsx src/GuestInvite.test.tsx src/HostApp.test.tsx`. Evidence: [the vouch report](docs/verification/vouches.md). Contract: [vouches](docs/contracts/api.md#vouches-issue-6).
 
 Issue #9 completes the Flutter vouch/live/offline slice: matching demo contacts, live participants and versioned ACKs, saved invitation/activity/confirmation details, foreground refresh and preserved uncertain claims. New offline claims are never queued. [Mobile guide](mobile/README.md) and [executed native/event evidence](docs/verification/flutter-live-recovery.md).
+
+## Reviewer demonstration and final verification
+
+1. Select a labelled seed identity on web. Create a future two-seat activity and book one seat. Invitation controls appear only for treatment activities; control still permits ordinary booking.
+2. Create a vouch for a fresh demo contact, then enter its code or installed-app link in Flutter. Preview details before choosing an identity, create the matching contact identity, and claim. Keep the web details open to observe sold-out availability and both participants.
+3. Reopen under the same identity: recover the same booking. A response lost after commit is checked with own-booking lookup and the persisted request key. A competing last-seat claimant gets a graceful sold-out outcome.
+4. Repeat on a fresh treatment activity with a public link. Verify its public trust copy, reusable link, and server-derived attribution.
+5. Background/reopen the mobile app, then read saved details offline. Counts are visibly stale offline; new claims require connectivity. Reconnection refreshes membership and checks any uncertain confirmation.
+6. Inspect `/api/metrics/summary`, `/api/metrics/product` and `/api/metrics/live`. Use `includeTest=true` for labelled verification data. The historical seed window is `from=2026-09-01T00:00:00Z&to=2026-09-08T00:00:00Z`.
+
+Native checks (use a booted iOS simulator ID from `flutter devices`):
+
+```sh
+# Real native links, both rails, typed codes, event replay, same/different-invite
+# confirmation recovery and actual metric-query counts. Use a quiet, isolated
+# database/API: concurrent writers change this test's cohort denominators.
+API_BASE_URL=http://127.0.0.1:3000 node scripts/check-mobile-guest.mjs <simulator-id> integration_test/handoff_metrics_test.dart
+
+# Both rails: live membership, lost committed response, saved offline restart/resume.
+cd mobile
+flutter test integration_test/live_guest_test.dart -d <simulator-id> --dart-define=API_BASE_URL=http://127.0.0.1:3000
+
+# After creating, booking and sharing fresh two-seat activities in the web UI,
+# keep web details open while native Flutter claims their last seat.
+flutter test integration_test/web_handoff_test.dart -d <simulator-id> --dart-define=API_BASE_URL=http://127.0.0.1:3000 --dart-define=HANDOFF_VOUCH_CODE=<vouch-code> --dart-define=HANDOFF_VOUCH_CONTACT=<demo-contact> --dart-define=HANDOFF_PUBLIC_CODE=<public-code>
+```
+
+The analytics test waits about three minutes for real activity-start deadlines. It uses test-marked identities, records before/after query results and keeps the seven-day K and 24-hour booker windows explicitly immature. Native tests require a running API; `npm run verify` covers the automated Node/web/Flutter suites without launching a simulator. For the native losing-claim/link regression, run `node scripts/check-mobile-guest.mjs <simulator-id>` from the root.
+
+## Assessment shortcuts and production follow-up
+
+Demo identity selection and unverified contact matching simulate trust; production needs authenticated identities, verified contacts, rate limits and non-revealing recipient responses. Prices are snapshots without payments. The custom URI requires an installed app; verified HTTPS links, deferred installation handoff and cross-device journey resolution remain follow-ups. Browser rendered-event delivery is best effort across refresh/closure; Flutter persists its event queue.
+
+Client open times are clamped between invitation creation and receipt, with a five-minute claim skew tolerance. Skew within those bounds and late-ingested opens can still change window membership/results. Cross-device journeys without a shared journey ID remain uncorrelated. The full-history open-unit scan exceeds the 1.5-second statement deadline at roughly 2.5M events, returning a retryable 500 on `/api/metrics/product`; windowed pruning or an ingestion-maintained unit table remains follow-up work.
+
+Local synthetic results do not establish production-month SLOs, real-user 30%/25% target attainment, or causal lift. Multi-node exact timing, automatic crashed-gateway lifetime reconciliation, production monitoring/deployment and a properly powered activity-clustered experiment remain outstanding. Safe cancellation/capacity release, waitlists, reminders and participant communication belong to the next release. Attendance is explicitly unmeasured; completion/attendance and optional polish are outside this handoff.

@@ -2,7 +2,7 @@ import { spawn, execFile } from 'node:child_process';
 import { localApiBase } from './local-api.mjs';
 
 if (process.platform !== 'darwin' || !process.argv[2]) {
-  console.error('Usage: node scripts/check-mobile-guest.mjs <booted-ios-simulator-id>');
+  console.error('Usage: node scripts/check-mobile-guest.mjs <booted-ios-simulator-id> [integration-test-file]');
   process.exit(1);
 }
 if (process.env.API_BASE_URL === undefined) {
@@ -10,16 +10,16 @@ if (process.env.API_BASE_URL === undefined) {
   if (existsSync('.env')) process.loadEnvFile('.env');
 }
 const device = process.argv[2];
-const child = spawn('flutter', ['test', 'integration_test/public_guest_test.dart', '-d', device,
+const child = spawn('flutter', ['test', process.argv[3] ?? 'integration_test/public_guest_test.dart', '-d', device,
   `--dart-define=API_BASE_URL=${localApiBase(process.env)}`], { cwd: 'mobile', stdio: ['ignore', 'pipe', 'pipe'] });
 let output = '';
-let opened = false;
+const opened = new Set();
 function receive(bytes) {
   process.stdout.write(bytes);
   output = (output + bytes.toString()).slice(-8000);
-  const match = output.match(/VELIO_LINK_READY=(velio:\/\/invite\/[0-9A-HJKMNP-TV-Z]{12}\?journey=[0-9a-f-]{36})/);
-  if (!opened && match) {
-    opened = true;
+  for (const match of output.matchAll(/VELIO_LINK_READY=(velio:\/\/invite\/[0-9A-HJKMNP-TV-Z]{12}\?journey=[0-9a-f-]{36})/g)) {
+    if (opened.has(match[1])) continue;
+    opened.add(match[1]);
     execFile('xcrun', ['simctl', 'openurl', device, match[1]], error => {
       if (error) { console.error('Native link failed:', error.message); child.kill('SIGINT'); }
       else { console.log('Opened native invitation URL on simulator. Accept the iOS Open prompt if shown.'); }

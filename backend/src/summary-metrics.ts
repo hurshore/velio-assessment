@@ -139,6 +139,7 @@ async function bookingReliability(db: Database, window: ReportingWindow) {
 function liveSummary(report: LiveDeliveryReport, window: ReportingWindow) {
   const groups = report.groups.map(group => ({
     timing: group.timing, observedBookings: group.observedBookings, bookingsWithSubscribers: group.bookingsWithSubscribers,
+    analysis: group.analysis,
     expectedDeliveries: group.expectedDeliveries, acknowledged: group.acknowledged, onTimeAcknowledged: group.onTimeAcknowledged,
     deliveryMisses: group.deliveryMisses, pending: group.pending, eventualAckCoverage: group.eventualAckCoverage,
     onTimeCoverage: group.onTimeCoverage, ackOnlyBookingSamples: group.ackOnlyBookingSamples,

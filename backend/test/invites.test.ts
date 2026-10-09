@@ -420,16 +420,21 @@ test('issued links keep resolving and claiming after creation is switched off', 
   } finally { await start({ version: 'invites', treatmentPercent: 100, creationEnabled: true }); }
 });
 
-test('claims are accepted shortly before expiry and rejected after it', async () => {
+test('claims before expiry succeed and claims after expiry preserve remaining seats', async () => {
   const host = (await identity()).id;
   const listing = await activity(host, 3);
   const { code, id } = (await share(listing.id, host)).data;
+  const earlyGuest = (await identity()).id;
+  const lateGuest = (await identity()).id;
   await owner.query(`ALTER TABLE invites DISABLE TRIGGER invites_append_only;
-    UPDATE invites SET created_at=clock_timestamp() - interval '23 hours 59 minutes', expires_at=clock_timestamp() + interval '700 milliseconds' WHERE id='${id}';
+    UPDATE invites SET created_at=clock_timestamp() - interval '23 hours 59 minutes', expires_at=clock_timestamp() + interval '30 seconds' WHERE id='${id}';
     ALTER TABLE invites ENABLE TRIGGER invites_append_only`);
-  assert.equal((await claim(code, (await identity()).id)).status, 201);
-  await new Promise(resolve => setTimeout(resolve, 800));
-  assert.equal((await claim(code, (await identity()).id)).error.code, 'INVITE_EXPIRED');
+  assert.equal((await claim(code, earlyGuest)).status, 201);
+  // Move only fixture expiry across the boundary; identity setup/host load must not decide which state we test.
+  await owner.query(`ALTER TABLE invites DISABLE TRIGGER invites_append_only;
+    UPDATE invites SET expires_at=clock_timestamp() - interval '1 second' WHERE id='${id}';
+    ALTER TABLE invites ENABLE TRIGGER invites_append_only`);
+  assert.equal((await claim(code, lateGuest)).error.code, 'INVITE_EXPIRED');
   assert.equal((await request(`/invites/${code}`)).data.state, 'expired');
   await reconcile(listing.id, 1);
 });

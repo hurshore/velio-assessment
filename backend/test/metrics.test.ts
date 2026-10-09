@@ -496,7 +496,7 @@ test('reliability follows the logical-intent policy and keeps unknown failures v
 });
 
 const liveFields = ['timing', 'observedBookings', 'bookingsWithSubscribers', 'expectedDeliveries', 'acknowledged', 'onTimeAcknowledged',
-  'deliveryMisses', 'pending', 'eventualAckCoverage', 'onTimeCoverage', 'ackOnlyBookingSamples', 'ackOnlyPerBookingP95Ms', 'everyClientTargetMet'];
+  'deliveryMisses', 'pending', 'eventualAckCoverage', 'onTimeCoverage', 'ackOnlyBookingSamples', 'ackOnlyPerBookingP95Ms', 'everyClientTargetMet', 'analysis'];
 async function liveParity(query: string) {
   const { data } = await summary(query);
   const live = (await (await fetch(`${base}/api/metrics/live${query}`)).json()).data;
@@ -515,10 +515,12 @@ test('live delivery summary counts only real subscribers and matches the live re
   const [commit, proxy] = live.groups;
   assert.deepEqual(commit, { timing: 'commit_observed', observedBookings: 3, bookingsWithSubscribers: 2, expectedDeliveries: 3,
     acknowledged: 2, onTimeAcknowledged: 2, deliveryMisses: 1, pending: 0, eventualAckCoverage: 2 / 3, onTimeCoverage: 2 / 3,
-    ackOnlyBookingSamples: 2, ackOnlyPerBookingP95Ms: 1200, everyClientTargetMet: false });
+    ackOnlyBookingSamples: 2, ackOnlyPerBookingP95Ms: 1200, everyClientTargetMet: false,
+    analysis: { status: 'insufficient_sample', observedBookingUpdates: 2, minObservedBookingUpdates: 50 } });
   assert.deepEqual(proxy, { timing: 'pre_commit_proxy', observedBookings: 1, bookingsWithSubscribers: 0, expectedDeliveries: 0,
     acknowledged: 0, onTimeAcknowledged: 0, deliveryMisses: 0, pending: 0, eventualAckCoverage: null, onTimeCoverage: null,
-    ackOnlyBookingSamples: 0, ackOnlyPerBookingP95Ms: null, everyClientTargetMet: null });
+    ackOnlyBookingSamples: 0, ackOnlyPerBookingP95Ms: null, everyClientTargetMet: null,
+    analysis: { status: 'no_data', observedBookingUpdates: 0, minObservedBookingUpdates: 50 } });
 });
 
 test('a booking nobody watched is neither a pending delivery nor an SLO pass', async () => {
@@ -537,6 +539,18 @@ test('a booking nobody watched is neither a pending delivery nor an SLO pass', a
   assert.equal(mixed.groups[1].everyClientTargetMet, null);
   const filtered = await liveParity(`?from=${from}&to=${to}&includeTest=false`);
   assert.equal(filtered.status, 'no_data');
+});
+
+test('live analysis reports the 50-update trigger separately from latency and coverage', async () => {
+  const { data } = await summary();
+  const detail = (await (await fetch(`${base}/api/metrics/live?from=${from}&to=${to}&includeTest=true`)).json()).data;
+  assert.deepEqual(data.live.groups[0].analysis, {
+    status: 'insufficient_sample', observedBookingUpdates: 2, minObservedBookingUpdates: 50,
+  });
+  assert.deepEqual(data.live.groups[0].analysis, detail.groups[0].analysis);
+  assert.deepEqual(data.live.groups[1].analysis, {
+    status: 'no_data', observedBookingUpdates: 0, minObservedBookingUpdates: 50,
+  });
 });
 
 test('synthetic and test actors never contaminate windowed summary metrics by default', async () => {

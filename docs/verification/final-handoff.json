@@ -1,0 +1,1350 @@
+{
+  "executedOn": "2026-10-09",
+  "dataKind": "labelled local synthetic/test only",
+  "cleanCheckout": {
+    "migrations": [
+      {
+        "name": "001_organic_identities.sql"
+      },
+      {
+        "name": "002_activities.sql"
+      },
+      {
+        "name": "003_safe_bookings.sql"
+      },
+      {
+        "name": "004_booking_activity_index.sql"
+      },
+      {
+        "name": "005_invite_assignments.sql"
+      },
+      {
+        "name": "006_invite_assignment_integrity.sql"
+      },
+      {
+        "name": "007_live_delivery.sql"
+      },
+      {
+        "name": "008_live_query_indexes.sql"
+      },
+      {
+        "name": "009_public_invites.sql"
+      },
+      {
+        "name": "010_recipient_bound_vouches.sql"
+      },
+      {
+        "name": "011_demo_contact_characters.sql"
+      },
+      {
+        "name": "012_metrics_views.sql"
+      }
+    ],
+    "openUnits": [
+      {
+        "n": 24
+      }
+    ],
+    "reconciliation": [
+      {
+        "activities": 23,
+        "violations": 0
+      }
+    ],
+    "summary": {
+      "includeTest": true,
+      "window": {
+        "from": "2026-09-01T00:00:00.000Z",
+        "to": "2026-09-08T00:00:00.000Z",
+        "basis": "Booking outcomes by analytics_events occurred_at; live delivery by outbox created_at; integrity is not windowed"
+      },
+      "integrity": {
+        "scope": "Global current state across all activities; ignores the reporting window and includeTest.",
+        "activitiesChecked": 23,
+        "oversoldActivities": 0,
+        "counterMismatchActivities": 0,
+        "violatingActivities": 0,
+        "target": 0,
+        "violation": false,
+        "violations": [],
+        "details": {
+          "limit": 100,
+          "truncated": false,
+          "omittedViolations": 0
+        }
+      },
+      "bookings": {
+        "rawOutcomes": {
+          "committed": 1,
+          "replay": 1,
+          "soldOut": 1,
+          "invalid": 1,
+          "technicalError": 2,
+          "total": 6
+        },
+        "attempts": 2,
+        "distinctIntents": 4,
+        "retriedIntents": 1,
+        "technicalErrorRate": 0.3333333333333333,
+        "excludedIntents": {
+          "replayOnly": 0,
+          "soldOut": 1,
+          "invalid": 1
+        },
+        "reliability": {
+          "succeeded": 1,
+          "eligibleFailures": 0,
+          "unknownFailures": 1,
+          "eligibleRate": 1,
+          "unknownInclusiveRate": 0.5,
+          "resolvedIntents": 1,
+          "target": 0.995,
+          "trigger": {
+            "resolvedIntents": 1000
+          },
+          "status": "insufficient_sample"
+        }
+      },
+      "live": {
+        "report": "/api/metrics/live?includeTest=true&from=2026-09-01T00%3A00%3A00.000Z&to=2026-09-08T00%3A00%3A00.000Z",
+        "targetMs": 2000,
+        "status": "no_data",
+        "instrumentationGaps": 0,
+        "truncated": false,
+        "groups": [
+          {
+            "timing": "commit_observed",
+            "observedBookings": 0,
+            "bookingsWithSubscribers": 0,
+            "expectedDeliveries": 0,
+            "acknowledged": 0,
+            "onTimeAcknowledged": 0,
+            "deliveryMisses": 0,
+            "pending": 0,
+            "eventualAckCoverage": null,
+            "onTimeCoverage": null,
+            "ackOnlyBookingSamples": 0,
+            "ackOnlyPerBookingP95Ms": null,
+            "everyClientTargetMet": null
+          },
+          {
+            "timing": "pre_commit_proxy",
+            "observedBookings": 0,
+            "bookingsWithSubscribers": 0,
+            "expectedDeliveries": 0,
+            "acknowledged": 0,
+            "onTimeAcknowledged": 0,
+            "deliveryMisses": 0,
+            "pending": 0,
+            "eventualAckCoverage": null,
+            "onTimeCoverage": null,
+            "ackOnlyBookingSamples": 0,
+            "ackOnlyPerBookingP95Ms": null,
+            "everyClientTargetMet": null
+          }
+        ]
+      },
+      "scope": "Local measurements with stated samples; not production SLO attainment."
+    },
+    "product": {
+      "includeTest": true,
+      "window": {
+        "from": "2026-09-01T00:00:00.000Z",
+        "to": "2026-09-08T00:00:00.000Z"
+      },
+      "bookersInvite": {
+        "definition": "each user's first confirmed booking in the window; they invited when they created an invite for that activity within 24h",
+        "mature": {
+          "qualifyingBookers": 7,
+          "invitedWithin24h": 1,
+          "rate": 0.14285714285714285,
+          "wilson95": [
+            0.02567962434474355,
+            0.5131278292743189
+          ],
+          "invitedByRail": {
+            "vouch": 0,
+            "public": 1
+          },
+          "bySignupGeneration": {
+            "0": {
+              "invitedWithin24h": 0,
+              "qualifyingBookers": 5
+            },
+            "1": {
+              "invitedWithin24h": 1,
+              "qualifyingBookers": 2
+            }
+          }
+        },
+        "notYetMature": {
+          "qualifyingBookers": 0,
+          "invitedWithin24h": 0
+        },
+        "hostCreatorsWithoutBooking": 1,
+        "target": 0.3,
+        "trigger": {
+          "matureBookerJourneys": 200
+        },
+        "status": "insufficient_sample"
+      },
+      "openToClaim": {
+        "definition": "deduplicated (invite, guest journey) opens excluding recovery reopens; conversion is an attributed claim by the earlier of 24h and activity start",
+        "headline": {
+          "openedJourneys": 7,
+          "convertedJourneys": 3,
+          "rate": 0.42857142857142855
+        },
+        "eligible": {
+          "eligibleOpens": 6,
+          "converted": 3,
+          "rate": 0.5,
+          "wilson95": [
+            0.1876163064826506,
+            0.8123836935173494
+          ]
+        },
+        "notYetMature": {
+          "openedJourneys": 0,
+          "convertedJourneys": 0
+        },
+        "reasons": {
+          "byDisplayedState": {
+            "valid": {
+              "opened": 6,
+              "converted": 3
+            },
+            "expired": {
+              "opened": 1,
+              "converted": 0
+            }
+          },
+          "recoveryOpens": 1
+        },
+        "byRail": {
+          "vouch": {
+            "opened": 1,
+            "converted": 1
+          },
+          "public": {
+            "opened": 5,
+            "converted": 2
+          }
+        },
+        "byPlatform": {
+          "web": {
+            "opened": 3,
+            "converted": 2
+          },
+          "mobile": {
+            "opened": 3,
+            "converted": 1
+          }
+        },
+        "byInviterGeneration": {
+          "0": {
+            "opened": 5,
+            "converted": 3
+          },
+          "1": {
+            "opened": 1,
+            "converted": 0
+          }
+        },
+        "byAvailabilityAtOpen": {
+          "valid": {
+            "opened": 6,
+            "converted": 3
+          },
+          "expired": {
+            "opened": 1,
+            "converted": 0
+          }
+        },
+        "byViewer": {
+          "new": {
+            "opened": 5,
+            "converted": 2
+          },
+          "returning": {
+            "opened": 1,
+            "converted": 1
+          }
+        },
+        "target": 0.25,
+        "trigger": {
+          "matureJourneys": 200
+        },
+        "status": "insufficient_sample"
+      },
+      "kFactor": {
+        "definition": "distinct new users directly acquired by the fixed cohort within the window, by frozen acquisition rail; activation requires an invitation claim in the window",
+        "window": {
+          "days": 7,
+          "planned": 7
+        },
+        "cohort": {
+          "asOf": "2026-09-01T00:00:00.000Z",
+          "size": 2,
+          "definition": "unmarked users existing at window start who had already hosted an activity or booked a seat"
+        },
+        "byRail": {
+          "vouch": {
+            "acquired": 1,
+            "activated": 1,
+            "k": 0.5,
+            "activatedK": 0.5
+          },
+          "public": {
+            "acquired": 2,
+            "activated": 1,
+            "k": 1,
+            "activatedK": 0.5
+          }
+        },
+        "newUsersByGeneration": [
+          {
+            "generation": 1,
+            "users": 3
+          },
+          {
+            "generation": 2,
+            "users": 1
+          }
+        ],
+        "target": null,
+        "note": "No numerical K target is supplied; deeper descendants belong to their own later cohorts.",
+        "status": "observed"
+      },
+      "holdout": {
+        "experiment": "group_invites_v1",
+        "basis": "activities assigned in the window; participants are unmarked bookers confirmed before the window ends; formed plans have at least 2",
+        "byVersion": [
+          {
+            "version": "seed-metrics-holdout",
+            "treatment": {
+              "activities": 1,
+              "participants": 2,
+              "formedPlans": 1,
+              "meanParticipantsPerActivity": 2,
+              "formedPlanRate": 1
+            },
+            "control": {
+              "activities": 2,
+              "participants": 1,
+              "formedPlans": 0,
+              "meanParticipantsPerActivity": 0.5,
+              "formedPlanRate": 0
+            },
+            "difference": {
+              "participantsPerActivity": 1.5,
+              "participantsPerActivityCi95": null,
+              "formedPlanRate": 1
+            },
+            "attendance": "unmeasured",
+            "includesUnexposed": true,
+            "observationalOnly": true,
+            "status": "observed"
+          }
+        ]
+      },
+      "scope": "Local measurements with stated samples; not production attainment."
+    }
+  },
+  "availableCapacity": {
+    "expected": 50,
+    "acknowledged": 50,
+    "misses": 0,
+    "p95": 1159.319583,
+    "maximum": 1213.7539580000002,
+    "coverage": 1,
+    "timing": "commit_observed",
+    "apiProcesses": 2,
+    "availableCapacity": {
+      "concurrentRequests": 50,
+      "elapsedMs": 1457.429416,
+      "requestP50Ms": 1251.001459,
+      "requestP95Ms": 1398.06225,
+      "requestMaxMs": 1452.9763329999996,
+      "bookings": {
+        "rawOutcomes": {
+          "committed": 50,
+          "replay": 0,
+          "soldOut": 0,
+          "invalid": 0,
+          "technicalError": 0,
+          "total": 50
+        },
+        "attempts": 50,
+        "distinctIntents": 50,
+        "retriedIntents": 0,
+        "technicalErrorRate": 0,
+        "excludedIntents": {
+          "replayOnly": 0,
+          "soldOut": 0,
+          "invalid": 0
+        },
+        "reliability": {
+          "succeeded": 50,
+          "eligibleFailures": 0,
+          "unknownFailures": 0,
+          "eligibleRate": 1,
+          "unknownInclusiveRate": 1,
+          "resolvedIntents": 50,
+          "target": 0.995,
+          "trigger": {
+            "resolvedIntents": 1000
+          },
+          "status": "insufficient_sample"
+        }
+      },
+      "analysis": {
+        "status": "observed",
+        "observedBookingUpdates": 50,
+        "minObservedBookingUpdates": 50
+      }
+    }
+  },
+  "nativeTraces": [
+    {
+      "cohort": "4cf9d3db-d863-4950-b103-5a5234ec8c4c",
+      "rail": "public",
+      "entry": "link",
+      "journey": "3d799d7a-9f8a-40d9-a486-1b39c182028d",
+      "activity": "674cb928-21fb-4ac3-a053-1314f345a200",
+      "actor": "10a4c442-60a9-4eb4-a999-d3a1cf5c2f4a",
+      "booking": "3efb91e9-28a1-4dbb-a25e-4b5e81ca5276",
+      "invite": "af4ea424-eb83-403f-9ece-069942fdf440",
+      "code": "2QBHC40HPYKV"
+    },
+    {
+      "cohort": "4cf9d3db-d863-4950-b103-5a5234ec8c4c",
+      "rail": "public",
+      "entry": "code",
+      "journey": "1f5423cf-fdc1-45a7-9e0f-e192c0089f06",
+      "activity": "46bf94ba-b5e7-4412-b7db-a8ded3da5e2d",
+      "actor": "407d7109-2812-4572-9c0a-f14b990f845c",
+      "booking": "d28355ac-ec3d-48cf-ada9-a6fd36fbdddb",
+      "invite": "504dcb16-78c5-4acd-b8bd-ec5ce360fffb",
+      "code": "HB8JAPRVH14A"
+    },
+    {
+      "cohort": "4cf9d3db-d863-4950-b103-5a5234ec8c4c",
+      "rail": "vouch",
+      "entry": "link",
+      "journey": "f555e44e-1375-4c8a-8a23-61d4c2a4efac",
+      "activity": "9e7bd0a5-90dc-4bb9-aea2-036589b1d814",
+      "actor": "b2726282-6fcd-47f0-ad1a-49467d9a02ec",
+      "booking": "d69fdc78-9c5e-449a-9b11-5a4573467e71",
+      "invite": "fa758d6f-dfd8-4b43-afba-30434df2c3e6",
+      "code": "JN09TZ05MR31"
+    },
+    {
+      "cohort": "4cf9d3db-d863-4950-b103-5a5234ec8c4c",
+      "rail": "vouch",
+      "entry": "code",
+      "journey": "f2b4f27c-e270-4b33-b5ea-148c8e78a617",
+      "activity": "1bdd0be3-ac45-416f-977b-bc8ed66a3908",
+      "actor": "dd44eed1-fce1-40ef-a1cd-a0d3342f56a6",
+      "booking": "d09df24f-aa5d-432a-8eb0-a1b42ec1f33e",
+      "invite": "636530c0-2a78-443d-b709-9d15dc32e74b",
+      "code": "JD8JJQW0ZX77"
+    }
+  ],
+  "nativeMetricCheckpoints": [
+    {
+      "stage": "public/link committed-response-recovery",
+      "window": {
+        "from": "2026-10-09T12:30:45.829Z",
+        "to": "2026-10-09T12:30:51.881Z"
+      },
+      "rawOutcomes": {
+        "committed": 2,
+        "replay": 0,
+        "soldOut": 0,
+        "invalid": 0,
+        "technicalError": 0,
+        "total": 2
+      },
+      "succeededIntents": 2,
+      "retriedIntents": 0,
+      "headline": {
+        "openedJourneys": 0,
+        "convertedJourneys": 0,
+        "rate": null
+      },
+      "notYetMature": {
+        "openedJourneys": 1,
+        "convertedJourneys": 1
+      },
+      "recoveryOpens": 0,
+      "acquiredActivated": {
+        "vouch": {
+          "acquired": 0,
+          "activated": 0
+        },
+        "public": {
+          "acquired": 1,
+          "activated": 1
+        }
+      }
+    },
+    {
+      "stage": "public/link replay-and-reopens",
+      "window": {
+        "from": "2026-10-09T12:30:45.829Z",
+        "to": "2026-10-09T12:30:53.529Z"
+      },
+      "rawOutcomes": {
+        "committed": 2,
+        "replay": 1,
+        "soldOut": 0,
+        "invalid": 0,
+        "technicalError": 0,
+        "total": 3
+      },
+      "succeededIntents": 2,
+      "retriedIntents": 1,
+      "headline": {
+        "openedJourneys": 0,
+        "convertedJourneys": 0,
+        "rate": null
+      },
+      "notYetMature": {
+        "openedJourneys": 1,
+        "convertedJourneys": 1
+      },
+      "recoveryOpens": 0,
+      "acquiredActivated": {
+        "vouch": {
+          "acquired": 0,
+          "activated": 0
+        },
+        "public": {
+          "acquired": 1,
+          "activated": 1
+        }
+      }
+    },
+    {
+      "stage": "public/code committed-response-recovery",
+      "window": {
+        "from": "2026-10-09T12:30:45.829Z",
+        "to": "2026-10-09T12:30:58.827Z"
+      },
+      "rawOutcomes": {
+        "committed": 4,
+        "replay": 1,
+        "soldOut": 0,
+        "invalid": 0,
+        "technicalError": 0,
+        "total": 5
+      },
+      "succeededIntents": 4,
+      "retriedIntents": 1,
+      "headline": {
+        "openedJourneys": 0,
+        "convertedJourneys": 0,
+        "rate": null
+      },
+      "notYetMature": {
+        "openedJourneys": 2,
+        "convertedJourneys": 2
+      },
+      "recoveryOpens": 0,
+      "acquiredActivated": {
+        "vouch": {
+          "acquired": 0,
+          "activated": 0
+        },
+        "public": {
+          "acquired": 2,
+          "activated": 2
+        }
+      }
+    },
+    {
+      "stage": "public/code replay-and-reopens",
+      "window": {
+        "from": "2026-10-09T12:30:45.829Z",
+        "to": "2026-10-09T12:31:00.416Z"
+      },
+      "rawOutcomes": {
+        "committed": 4,
+        "replay": 2,
+        "soldOut": 0,
+        "invalid": 0,
+        "technicalError": 0,
+        "total": 6
+      },
+      "succeededIntents": 4,
+      "retriedIntents": 2,
+      "headline": {
+        "openedJourneys": 0,
+        "convertedJourneys": 0,
+        "rate": null
+      },
+      "notYetMature": {
+        "openedJourneys": 2,
+        "convertedJourneys": 2
+      },
+      "recoveryOpens": 0,
+      "acquiredActivated": {
+        "vouch": {
+          "acquired": 0,
+          "activated": 0
+        },
+        "public": {
+          "acquired": 2,
+          "activated": 2
+        }
+      }
+    },
+    {
+      "stage": "vouch/link committed-response-recovery",
+      "window": {
+        "from": "2026-10-09T12:30:45.829Z",
+        "to": "2026-10-09T12:31:04.159Z"
+      },
+      "rawOutcomes": {
+        "committed": 6,
+        "replay": 2,
+        "soldOut": 0,
+        "invalid": 0,
+        "technicalError": 0,
+        "total": 8
+      },
+      "succeededIntents": 6,
+      "retriedIntents": 2,
+      "headline": {
+        "openedJourneys": 0,
+        "convertedJourneys": 0,
+        "rate": null
+      },
+      "notYetMature": {
+        "openedJourneys": 3,
+        "convertedJourneys": 3
+      },
+      "recoveryOpens": 0,
+      "acquiredActivated": {
+        "vouch": {
+          "acquired": 1,
+          "activated": 1
+        },
+        "public": {
+          "acquired": 2,
+          "activated": 2
+        }
+      }
+    },
+    {
+      "stage": "vouch/link replay-and-reopens",
+      "window": {
+        "from": "2026-10-09T12:30:45.829Z",
+        "to": "2026-10-09T12:31:05.848Z"
+      },
+      "rawOutcomes": {
+        "committed": 6,
+        "replay": 3,
+        "soldOut": 0,
+        "invalid": 0,
+        "technicalError": 0,
+        "total": 9
+      },
+      "succeededIntents": 6,
+      "retriedIntents": 3,
+      "headline": {
+        "openedJourneys": 0,
+        "convertedJourneys": 0,
+        "rate": null
+      },
+      "notYetMature": {
+        "openedJourneys": 3,
+        "convertedJourneys": 3
+      },
+      "recoveryOpens": 0,
+      "acquiredActivated": {
+        "vouch": {
+          "acquired": 1,
+          "activated": 1
+        },
+        "public": {
+          "acquired": 2,
+          "activated": 2
+        }
+      }
+    },
+    {
+      "stage": "vouch/code committed-response-recovery",
+      "window": {
+        "from": "2026-10-09T12:30:45.829Z",
+        "to": "2026-10-09T12:31:09.326Z"
+      },
+      "rawOutcomes": {
+        "committed": 8,
+        "replay": 3,
+        "soldOut": 0,
+        "invalid": 0,
+        "technicalError": 0,
+        "total": 11
+      },
+      "succeededIntents": 8,
+      "retriedIntents": 3,
+      "headline": {
+        "openedJourneys": 0,
+        "convertedJourneys": 0,
+        "rate": null
+      },
+      "notYetMature": {
+        "openedJourneys": 4,
+        "convertedJourneys": 4
+      },
+      "recoveryOpens": 0,
+      "acquiredActivated": {
+        "vouch": {
+          "acquired": 2,
+          "activated": 2
+        },
+        "public": {
+          "acquired": 2,
+          "activated": 2
+        }
+      }
+    },
+    {
+      "stage": "vouch/code replay-and-reopens",
+      "window": {
+        "from": "2026-10-09T12:30:45.829Z",
+        "to": "2026-10-09T12:31:10.865Z"
+      },
+      "rawOutcomes": {
+        "committed": 8,
+        "replay": 4,
+        "soldOut": 0,
+        "invalid": 0,
+        "technicalError": 0,
+        "total": 12
+      },
+      "succeededIntents": 8,
+      "retriedIntents": 4,
+      "headline": {
+        "openedJourneys": 0,
+        "convertedJourneys": 0,
+        "rate": null
+      },
+      "notYetMature": {
+        "openedJourneys": 4,
+        "convertedJourneys": 4
+      },
+      "recoveryOpens": 0,
+      "acquiredActivated": {
+        "vouch": {
+          "acquired": 2,
+          "activated": 2
+        },
+        "public": {
+          "acquired": 2,
+          "activated": 2
+        }
+      }
+    },
+    {
+      "stage": "mature-real-clock",
+      "window": {
+        "from": "2026-10-09T12:30:45.829Z",
+        "to": "2026-10-09T12:34:07.014Z"
+      },
+      "rawOutcomes": {
+        "committed": 8,
+        "replay": 4,
+        "soldOut": 0,
+        "invalid": 0,
+        "technicalError": 0,
+        "total": 12
+      },
+      "succeededIntents": 8,
+      "retriedIntents": 4,
+      "headline": {
+        "openedJourneys": 4,
+        "convertedJourneys": 4,
+        "rate": 1
+      },
+      "notYetMature": {
+        "openedJourneys": 0,
+        "convertedJourneys": 0
+      },
+      "recoveryOpens": 8,
+      "acquiredActivated": {
+        "vouch": {
+          "acquired": 2,
+          "activated": 2
+        },
+        "public": {
+          "acquired": 2,
+          "activated": 2
+        }
+      }
+    }
+  ],
+  "persistedNative": [
+    {
+      "cohort": "4cf9d3db-d863-4950-b103-5a5234ec8c4c",
+      "rail": "public",
+      "entry": "link",
+      "journey": "3d799d7a-9f8a-40d9-a486-1b39c182028d",
+      "activity": "674cb928-21fb-4ac3-a053-1314f345a200",
+      "actor": "10a4c442-60a9-4eb4-a999-d3a1cf5c2f4a",
+      "booking": "3efb91e9-28a1-4dbb-a25e-4b5e81ca5276",
+      "invite": "af4ea424-eb83-403f-9ece-069942fdf440",
+      "code": "2QBHC40HPYKV",
+      "attribution": [
+        {
+          "generation": 1,
+          "acquisition_parent_id": "f37cd4c4-64ad-472c-b167-55514ce65189",
+          "acquisition_root_id": "f37cd4c4-64ad-472c-b167-55514ce65189",
+          "acquisition_invite_id": "af4ea424-eb83-403f-9ece-069942fdf440",
+          "acquisition_rail": "public",
+          "inviter_id": "f37cd4c4-64ad-472c-b167-55514ce65189",
+          "inviter_generation": 0,
+          "inviter_root_id": "f37cd4c4-64ad-472c-b167-55514ce65189",
+          "invitee_generation": 1,
+          "redemption_id": "35d2b28f-f747-4c25-8d38-64e7f7bd7c62",
+          "booking_id": "3efb91e9-28a1-4dbb-a25e-4b5e81ca5276",
+          "invite_id": "af4ea424-eb83-403f-9ece-069942fdf440",
+          "version": "1",
+          "variant": "treatment"
+        }
+      ],
+      "eventCounts": {
+        "invite_opened": 3,
+        "activity_viewed": 3,
+        "identity_created": 1,
+        "booking_attempted": 2,
+        "invite_claim_attempted": 2,
+        "booking_succeeded": 1,
+        "spot_claimed": 1,
+        "booking_request_outcome": 2,
+        "availability_applied": 1
+      },
+      "anonymousOpen": {
+        "name": "invite_opened",
+        "platform": "mobile",
+        "source": "client",
+        "actor_id": null,
+        "activity_id": "674cb928-21fb-4ac3-a053-1314f345a200",
+        "plan_id": "71209b15-b3f6-4226-a434-74eedb022fe3",
+        "booking_id": null,
+        "invite_id": "af4ea424-eb83-403f-9ece-069942fdf440",
+        "context": {
+          "rail": "public",
+          "recovery": false,
+          "assignment": {
+            "variant": "treatment",
+            "version": "1",
+            "assignedAt": "2026-10-09T12:30:46.482115+00:00",
+            "experiment": "group_invites_v1",
+            "treatmentPercent": 50
+          },
+          "inviterRole": "host",
+          "displayedState": "valid",
+          "stateAtReceipt": "valid",
+          "inviterGeneration": 0
+        },
+        "test": true,
+        "synthetic": false
+      },
+      "committedSpotClaimed": {
+        "name": "spot_claimed",
+        "platform": "mobile",
+        "source": "server",
+        "actor_id": "10a4c442-60a9-4eb4-a999-d3a1cf5c2f4a",
+        "activity_id": "674cb928-21fb-4ac3-a053-1314f345a200",
+        "plan_id": "71209b15-b3f6-4226-a434-74eedb022fe3",
+        "booking_id": "3efb91e9-28a1-4dbb-a25e-4b5e81ca5276",
+        "invite_id": "af4ea424-eb83-403f-9ece-069942fdf440",
+        "context": {
+          "rail": "public",
+          "outcome": "committed",
+          "operation": "claim_invite",
+          "activityId": "674cb928-21fb-4ac3-a053-1314f345a200",
+          "assignment": {
+            "variant": "treatment",
+            "version": "1",
+            "assignedAt": "2026-10-09T12:30:46.482115+00:00",
+            "experiment": "group_invites_v1",
+            "treatmentPercent": 50
+          },
+          "generation": 1,
+          "eligibility": "eligible",
+          "inviteeGeneration": 1
+        },
+        "test": true,
+        "synthetic": false
+      },
+      "allEventsMobileAndTestMarked": true
+    },
+    {
+      "cohort": "4cf9d3db-d863-4950-b103-5a5234ec8c4c",
+      "rail": "public",
+      "entry": "code",
+      "journey": "1f5423cf-fdc1-45a7-9e0f-e192c0089f06",
+      "activity": "46bf94ba-b5e7-4412-b7db-a8ded3da5e2d",
+      "actor": "407d7109-2812-4572-9c0a-f14b990f845c",
+      "booking": "d28355ac-ec3d-48cf-ada9-a6fd36fbdddb",
+      "invite": "504dcb16-78c5-4acd-b8bd-ec5ce360fffb",
+      "code": "HB8JAPRVH14A",
+      "attribution": [
+        {
+          "generation": 1,
+          "acquisition_parent_id": "f37cd4c4-64ad-472c-b167-55514ce65189",
+          "acquisition_root_id": "f37cd4c4-64ad-472c-b167-55514ce65189",
+          "acquisition_invite_id": "504dcb16-78c5-4acd-b8bd-ec5ce360fffb",
+          "acquisition_rail": "public",
+          "inviter_id": "f37cd4c4-64ad-472c-b167-55514ce65189",
+          "inviter_generation": 0,
+          "inviter_root_id": "f37cd4c4-64ad-472c-b167-55514ce65189",
+          "invitee_generation": 1,
+          "redemption_id": "84f3a760-fb33-45f1-9c4d-c24b6f8773a3",
+          "booking_id": "d28355ac-ec3d-48cf-ada9-a6fd36fbdddb",
+          "invite_id": "504dcb16-78c5-4acd-b8bd-ec5ce360fffb",
+          "version": "1",
+          "variant": "treatment"
+        }
+      ],
+      "eventCounts": {
+        "invite_opened": 3,
+        "activity_viewed": 3,
+        "identity_created": 1,
+        "booking_attempted": 2,
+        "invite_claim_attempted": 2,
+        "spot_claimed": 1,
+        "booking_succeeded": 1,
+        "booking_request_outcome": 2,
+        "availability_applied": 1
+      },
+      "anonymousOpen": {
+        "name": "invite_opened",
+        "platform": "mobile",
+        "source": "client",
+        "actor_id": null,
+        "activity_id": "46bf94ba-b5e7-4412-b7db-a8ded3da5e2d",
+        "plan_id": "28b787e7-50d0-4c9f-853a-a4dfcb9da5b5",
+        "booking_id": null,
+        "invite_id": "504dcb16-78c5-4acd-b8bd-ec5ce360fffb",
+        "context": {
+          "rail": "public",
+          "recovery": false,
+          "assignment": {
+            "variant": "treatment",
+            "version": "1",
+            "assignedAt": "2026-10-09T12:30:53.674289+00:00",
+            "experiment": "group_invites_v1",
+            "treatmentPercent": 50
+          },
+          "inviterRole": "host",
+          "displayedState": "valid",
+          "stateAtReceipt": "valid",
+          "inviterGeneration": 0
+        },
+        "test": true,
+        "synthetic": false
+      },
+      "committedSpotClaimed": {
+        "name": "spot_claimed",
+        "platform": "mobile",
+        "source": "server",
+        "actor_id": "407d7109-2812-4572-9c0a-f14b990f845c",
+        "activity_id": "46bf94ba-b5e7-4412-b7db-a8ded3da5e2d",
+        "plan_id": "28b787e7-50d0-4c9f-853a-a4dfcb9da5b5",
+        "booking_id": "d28355ac-ec3d-48cf-ada9-a6fd36fbdddb",
+        "invite_id": "504dcb16-78c5-4acd-b8bd-ec5ce360fffb",
+        "context": {
+          "rail": "public",
+          "outcome": "committed",
+          "operation": "claim_invite",
+          "activityId": "46bf94ba-b5e7-4412-b7db-a8ded3da5e2d",
+          "assignment": {
+            "variant": "treatment",
+            "version": "1",
+            "assignedAt": "2026-10-09T12:30:53.674289+00:00",
+            "experiment": "group_invites_v1",
+            "treatmentPercent": 50
+          },
+          "generation": 1,
+          "eligibility": "eligible",
+          "inviteeGeneration": 1
+        },
+        "test": true,
+        "synthetic": false
+      },
+      "allEventsMobileAndTestMarked": true
+    },
+    {
+      "cohort": "4cf9d3db-d863-4950-b103-5a5234ec8c4c",
+      "rail": "vouch",
+      "entry": "link",
+      "journey": "f555e44e-1375-4c8a-8a23-61d4c2a4efac",
+      "activity": "9e7bd0a5-90dc-4bb9-aea2-036589b1d814",
+      "actor": "b2726282-6fcd-47f0-ad1a-49467d9a02ec",
+      "booking": "d69fdc78-9c5e-449a-9b11-5a4573467e71",
+      "invite": "fa758d6f-dfd8-4b43-afba-30434df2c3e6",
+      "code": "JN09TZ05MR31",
+      "attribution": [
+        {
+          "generation": 1,
+          "acquisition_parent_id": "f37cd4c4-64ad-472c-b167-55514ce65189",
+          "acquisition_root_id": "f37cd4c4-64ad-472c-b167-55514ce65189",
+          "acquisition_invite_id": "fa758d6f-dfd8-4b43-afba-30434df2c3e6",
+          "acquisition_rail": "vouch",
+          "inviter_id": "f37cd4c4-64ad-472c-b167-55514ce65189",
+          "inviter_generation": 0,
+          "inviter_root_id": "f37cd4c4-64ad-472c-b167-55514ce65189",
+          "invitee_generation": 1,
+          "redemption_id": "62cc2963-0927-4223-ad9b-e7bfff853d64",
+          "booking_id": "d69fdc78-9c5e-449a-9b11-5a4573467e71",
+          "invite_id": "fa758d6f-dfd8-4b43-afba-30434df2c3e6",
+          "version": "1",
+          "variant": "treatment"
+        }
+      ],
+      "eventCounts": {
+        "invite_opened": 3,
+        "activity_viewed": 3,
+        "identity_created": 1,
+        "booking_attempted": 2,
+        "invite_claim_attempted": 2,
+        "booking_succeeded": 1,
+        "spot_claimed": 1,
+        "booking_request_outcome": 2,
+        "availability_applied": 1
+      },
+      "anonymousOpen": {
+        "name": "invite_opened",
+        "platform": "mobile",
+        "source": "client",
+        "actor_id": null,
+        "activity_id": "9e7bd0a5-90dc-4bb9-aea2-036589b1d814",
+        "plan_id": "d4923231-73bd-4f16-adb9-c6e2f5a98097",
+        "booking_id": null,
+        "invite_id": "fa758d6f-dfd8-4b43-afba-30434df2c3e6",
+        "context": {
+          "rail": "vouch",
+          "recovery": false,
+          "assignment": {
+            "variant": "treatment",
+            "version": "1",
+            "assignedAt": "2026-10-09T12:31:00.787698+00:00",
+            "experiment": "group_invites_v1",
+            "treatmentPercent": 50
+          },
+          "inviterRole": "host",
+          "displayedState": "valid",
+          "stateAtReceipt": "valid",
+          "inviterGeneration": 0
+        },
+        "test": true,
+        "synthetic": false
+      },
+      "committedSpotClaimed": {
+        "name": "spot_claimed",
+        "platform": "mobile",
+        "source": "server",
+        "actor_id": "b2726282-6fcd-47f0-ad1a-49467d9a02ec",
+        "activity_id": "9e7bd0a5-90dc-4bb9-aea2-036589b1d814",
+        "plan_id": "d4923231-73bd-4f16-adb9-c6e2f5a98097",
+        "booking_id": "d69fdc78-9c5e-449a-9b11-5a4573467e71",
+        "invite_id": "fa758d6f-dfd8-4b43-afba-30434df2c3e6",
+        "context": {
+          "rail": "vouch",
+          "outcome": "committed",
+          "operation": "claim_invite",
+          "activityId": "9e7bd0a5-90dc-4bb9-aea2-036589b1d814",
+          "assignment": {
+            "variant": "treatment",
+            "version": "1",
+            "assignedAt": "2026-10-09T12:31:00.787698+00:00",
+            "experiment": "group_invites_v1",
+            "treatmentPercent": 50
+          },
+          "generation": 1,
+          "eligibility": "eligible",
+          "inviteeGeneration": 1
+        },
+        "test": true,
+        "synthetic": false
+      },
+      "allEventsMobileAndTestMarked": true
+    },
+    {
+      "cohort": "4cf9d3db-d863-4950-b103-5a5234ec8c4c",
+      "rail": "vouch",
+      "entry": "code",
+      "journey": "f2b4f27c-e270-4b33-b5ea-148c8e78a617",
+      "activity": "1bdd0be3-ac45-416f-977b-bc8ed66a3908",
+      "actor": "dd44eed1-fce1-40ef-a1cd-a0d3342f56a6",
+      "booking": "d09df24f-aa5d-432a-8eb0-a1b42ec1f33e",
+      "invite": "636530c0-2a78-443d-b709-9d15dc32e74b",
+      "code": "JD8JJQW0ZX77",
+      "attribution": [
+        {
+          "generation": 1,
+          "acquisition_parent_id": "f37cd4c4-64ad-472c-b167-55514ce65189",
+          "acquisition_root_id": "f37cd4c4-64ad-472c-b167-55514ce65189",
+          "acquisition_invite_id": "636530c0-2a78-443d-b709-9d15dc32e74b",
+          "acquisition_rail": "vouch",
+          "inviter_id": "f37cd4c4-64ad-472c-b167-55514ce65189",
+          "inviter_generation": 0,
+          "inviter_root_id": "f37cd4c4-64ad-472c-b167-55514ce65189",
+          "invitee_generation": 1,
+          "redemption_id": "d7868769-0201-4c6f-b45f-cea369e6fd80",
+          "booking_id": "d09df24f-aa5d-432a-8eb0-a1b42ec1f33e",
+          "invite_id": "636530c0-2a78-443d-b709-9d15dc32e74b",
+          "version": "1",
+          "variant": "treatment"
+        }
+      ],
+      "eventCounts": {
+        "invite_opened": 3,
+        "activity_viewed": 3,
+        "identity_created": 1,
+        "booking_attempted": 2,
+        "invite_claim_attempted": 2,
+        "booking_succeeded": 1,
+        "spot_claimed": 1,
+        "booking_request_outcome": 2,
+        "availability_applied": 1
+      },
+      "anonymousOpen": {
+        "name": "invite_opened",
+        "platform": "mobile",
+        "source": "client",
+        "actor_id": null,
+        "activity_id": "1bdd0be3-ac45-416f-977b-bc8ed66a3908",
+        "plan_id": "b2694042-b77f-4be8-96a7-9f3f0730f526",
+        "booking_id": null,
+        "invite_id": "636530c0-2a78-443d-b709-9d15dc32e74b",
+        "context": {
+          "rail": "vouch",
+          "recovery": false,
+          "assignment": {
+            "variant": "treatment",
+            "version": "1",
+            "assignedAt": "2026-10-09T12:31:05.933391+00:00",
+            "experiment": "group_invites_v1",
+            "treatmentPercent": 50
+          },
+          "inviterRole": "host",
+          "displayedState": "valid",
+          "stateAtReceipt": "valid",
+          "inviterGeneration": 0
+        },
+        "test": true,
+        "synthetic": false
+      },
+      "committedSpotClaimed": {
+        "name": "spot_claimed",
+        "platform": "mobile",
+        "source": "server",
+        "actor_id": "dd44eed1-fce1-40ef-a1cd-a0d3342f56a6",
+        "activity_id": "1bdd0be3-ac45-416f-977b-bc8ed66a3908",
+        "plan_id": "b2694042-b77f-4be8-96a7-9f3f0730f526",
+        "booking_id": "d09df24f-aa5d-432a-8eb0-a1b42ec1f33e",
+        "invite_id": "636530c0-2a78-443d-b709-9d15dc32e74b",
+        "context": {
+          "rail": "vouch",
+          "outcome": "committed",
+          "operation": "claim_invite",
+          "activityId": "1bdd0be3-ac45-416f-977b-bc8ed66a3908",
+          "assignment": {
+            "variant": "treatment",
+            "version": "1",
+            "assignedAt": "2026-10-09T12:31:05.933391+00:00",
+            "experiment": "group_invites_v1",
+            "treatmentPercent": 50
+          },
+          "generation": 1,
+          "eligibility": "eligible",
+          "inviteeGeneration": 1
+        },
+        "test": true,
+        "synthetic": false
+      },
+      "allEventsMobileAndTestMarked": true
+    }
+  ],
+  "finalNativeProduct": {
+    "includeTest": true,
+    "window": {
+      "from": "2026-10-09T12:30:45.829Z",
+      "to": "2026-10-09T12:34:07.014Z"
+    },
+    "bookersInvite": {
+      "definition": "each user's first confirmed booking in the window; they invited when they created an invite for that activity within 24h",
+      "mature": {
+        "qualifyingBookers": 0,
+        "invitedWithin24h": 0,
+        "rate": null,
+        "wilson95": null,
+        "invitedByRail": {
+          "vouch": 0,
+          "public": 0
+        },
+        "bySignupGeneration": {}
+      },
+      "notYetMature": {
+        "qualifyingBookers": 5,
+        "invitedWithin24h": 1
+      },
+      "hostCreatorsWithoutBooking": 0,
+      "target": 0.3,
+      "trigger": {
+        "matureBookerJourneys": 200
+      },
+      "status": "no_data"
+    },
+    "openToClaim": {
+      "definition": "deduplicated (invite, guest journey) opens excluding recovery reopens; conversion is an attributed claim by the earlier of 24h and activity start",
+      "headline": {
+        "openedJourneys": 4,
+        "convertedJourneys": 4,
+        "rate": 1
+      },
+      "eligible": {
+        "eligibleOpens": 4,
+        "converted": 4,
+        "rate": 1,
+        "wilson95": [
+          0.5101091635454027,
+          1
+        ]
+      },
+      "notYetMature": {
+        "openedJourneys": 0,
+        "convertedJourneys": 0
+      },
+      "reasons": {
+        "byDisplayedState": {
+          "valid": {
+            "opened": 4,
+            "converted": 4
+          }
+        },
+        "recoveryOpens": 8
+      },
+      "byRail": {
+        "vouch": {
+          "opened": 2,
+          "converted": 2
+        },
+        "public": {
+          "opened": 2,
+          "converted": 2
+        }
+      },
+      "byPlatform": {
+        "mobile": {
+          "opened": 4,
+          "converted": 4
+        }
+      },
+      "byInviterGeneration": {
+        "0": {
+          "opened": 4,
+          "converted": 4
+        }
+      },
+      "byAvailabilityAtOpen": {
+        "valid": {
+          "opened": 4,
+          "converted": 4
+        }
+      },
+      "byViewer": {
+        "new": {
+          "opened": 4,
+          "converted": 4
+        },
+        "returning": {
+          "opened": 0,
+          "converted": 0
+        }
+      },
+      "target": 0.25,
+      "trigger": {
+        "matureJourneys": 200
+      },
+      "status": "insufficient_sample"
+    },
+    "kFactor": {
+      "definition": "distinct new users directly acquired by the fixed cohort within the window, by frozen acquisition rail; activation requires an invitation claim in the window",
+      "window": {
+        "days": 0.0023285300925925925,
+        "planned": 7
+      },
+      "cohort": {
+        "asOf": "2026-10-09T12:30:45.829Z",
+        "size": 13,
+        "definition": "unmarked users existing at window start who had already hosted an activity or booked a seat"
+      },
+      "byRail": {
+        "vouch": {
+          "acquired": 2,
+          "activated": 2,
+          "k": 0.15384615384615385,
+          "activatedK": 0.15384615384615385
+        },
+        "public": {
+          "acquired": 2,
+          "activated": 2,
+          "k": 0.15384615384615385,
+          "activatedK": 0.15384615384615385
+        }
+      },
+      "newUsersByGeneration": [
+        {
+          "generation": 1,
+          "users": 4
+        }
+      ],
+      "target": null,
+      "note": "No numerical K target is supplied; deeper descendants belong to their own later cohorts.",
+      "status": "partial_window"
+    },
+    "holdout": {
+      "experiment": "group_invites_v1",
+      "basis": "activities assigned in the window; participants are unmarked bookers confirmed before the window ends; formed plans have at least 2",
+      "byVersion": [
+        {
+          "version": "1",
+          "treatment": {
+            "activities": 4,
+            "participants": 8,
+            "formedPlans": 4,
+            "meanParticipantsPerActivity": 2,
+            "formedPlanRate": 1
+          },
+          "control": {
+            "activities": 5,
+            "participants": 0,
+            "formedPlans": 0,
+            "meanParticipantsPerActivity": 0,
+            "formedPlanRate": 0
+          },
+          "difference": {
+            "participantsPerActivity": 2,
+            "participantsPerActivityCi95": [
+              2,
+              2
+            ],
+            "formedPlanRate": 1
+          },
+          "attendance": "unmeasured",
+          "includesUnexposed": true,
+          "observationalOnly": true,
+          "status": "observed"
+        }
+      ]
+    },
+    "scope": "Local measurements with stated samples; not production attainment."
+  }
+}
