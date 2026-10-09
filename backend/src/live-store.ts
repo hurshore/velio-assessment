@@ -2,6 +2,7 @@ import { deliveryTargetMs } from './live-policy.js';
 import { randomUUID } from 'node:crypto';
 import { rows, type Database } from './domain.js';
 import type { AvailabilityEvent } from './outbox.js';
+import { assignmentJson } from './experiments.js';
 
 export type Timing = 'commit_observed' | 'pre_commit_proxy';
 export interface DeliveryClock { event: AvailabilityEvent; timing: Timing; started: number; sentVersion?: number }
@@ -29,16 +30,20 @@ export async function recoverDelivery(db: Database, processId: string, connectio
     WHERE d.event_id=$1 AND d.process_id=$2 AND d.connection_id=$3 AND d.ack_at IS NULL AND d.sent_version IS NOT NULL`, [eventId, processId, connectionId]);
   return delivery ? { ...delivery, event: { ...delivery.payload, bookingId: delivery.bookingId, createdAt: delivery.createdAt.toISOString() } } : undefined;
 }
-export async function saveAck(db: Database, context: { processId: string; connectionId: string; clientId: string; delivery: DeliveryClock; version: number; receivedClock: number; receivedAt: number }) {
-  const { processId, connectionId, clientId, delivery, version, receivedClock, receivedAt } = context;
+export async function saveAck(db: Database, context: { processId: string; connectionId: string; clientId: string; platform: string; journeyId: string; actorId: string | null; inviteId: string | null; delivery: DeliveryClock; version: number; receivedClock: number; receivedAt: number }) {
+  const { processId, connectionId, delivery, version, receivedClock, receivedAt } = context;
   const delay = delivery.timing === 'commit_observed' ? receivedClock - delivery.started : receivedAt - Date.parse(delivery.event.createdAt);
   await db.query(`WITH applied AS (
     UPDATE live_deliveries SET ack_at=clock_timestamp(),delay_ms=$4 WHERE event_id=$1 AND process_id=$2 AND connection_id=$3
       AND ack_at IS NULL RETURNING event_id
-  ) INSERT INTO analytics_events (id,schema_version,name,occurred_at,source,platform,journey_id,activity_id,plan_id,booking_id,context,synthetic,test)
-    SELECT $5,1,'availability_applied',clock_timestamp(),'client','web',$6,e.activity_id,b.plan_id,b.id,
-      jsonb_build_object('eventId',e.id,'version',$7::integer,'timing',$8::text,'delayMs',$4::double precision),u.synthetic OR host.synthetic,u.test OR host.test
+  ) INSERT INTO analytics_events (id,schema_version,name,occurred_at,source,platform,journey_id,activity_id,plan_id,booking_id,actor_id,invite_id,context,synthetic,test)
+    SELECT $5,1,'availability_applied',clock_timestamp(),'client',$9,$6,e.activity_id,b.plan_id,b.id,$10,$11,
+      jsonb_strip_nulls(jsonb_build_object('eventId',e.id,'version',$7::integer,'timing',$8::text,'delayMs',$4::double precision,
+        'generation',viewer.generation,'rail',i.rail,'assignment',(SELECT ${assignmentJson('assignment')} FROM experiment_assignments assignment WHERE assignment.activity_id=e.activity_id))),
+      u.synthetic OR host.synthetic OR COALESCE(viewer.synthetic,false) OR COALESCE(inviter.synthetic,false),
+      u.test OR host.test OR COALESCE(viewer.test,false) OR COALESCE(inviter.test,false)
     FROM applied JOIN outbox_events e ON e.id=applied.event_id JOIN bookings b ON b.id=e.booking_id
-    JOIN users u ON u.id=b.user_id JOIN activities a ON a.id=e.activity_id JOIN users host ON host.id=a.host_id`,
-    [delivery.event.eventId, processId, connectionId, Math.max(0, delay), randomUUID(), clientId, version, delivery.timing]);
+    JOIN users u ON u.id=b.user_id JOIN activities a ON a.id=e.activity_id JOIN users host ON host.id=a.host_id
+    LEFT JOIN users viewer ON viewer.id=$10 LEFT JOIN invites i ON i.id=$11 LEFT JOIN users inviter ON inviter.id=i.inviter_id`,
+    [delivery.event.eventId, processId, connectionId, Math.max(0, delay), randomUUID(), context.journeyId, version, delivery.timing, context.platform, context.actorId, context.inviteId]);
 }

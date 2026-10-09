@@ -1,0 +1,32 @@
+{
+  "date": "2026-10-09",
+  "device": "iPhone 17 / iOS 26.2",
+  "command": "node scripts/check-mobile-guest.mjs 8860318F-EE81-4AD3-86FB-0D4A368032A2",
+  "result": "passed",
+  "guest": {
+    "journey": "a27a266c-75c2-464d-9845-2108a34bbe9f",
+    "activity": "3fa3f115-8349-4582-87b3-0c4b88593979",
+    "actor": "0f99f7eb-b8ac-426d-9403-a880ee143fb4",
+    "booking": "bdac5268-891a-4d51-9a23-338e24b63ffa",
+    "code": "8QDTGAQTXXBD"
+  },
+  "losingGuest": {
+    "activity": "5946bc21-92c1-43f4-a8e6-528537a25cd1",
+    "actor": "e7f9fa04-6c95-49f8-9045-db6a3a691744",
+    "journey": "71f59066-b5ca-4cd1-9aa7-959b10dc4d68"
+  },
+  "checks": [
+    "native public URI adopts linked journey",
+    "preview before identity setup",
+    "code-entry preview",
+    "real committed claim response discarded, confirmation recovered by lookup",
+    "persisted session reopening returns same booking",
+    "one claim request key in successful simulator journey",
+    "event replay accepted=false",
+    "rendered competing last-seat claim rejects without booking"
+  ],
+  "priorEventAndDatabaseEvidence": "flutter-public-invites.json",
+  "mobileTests": 37,
+  "flutterAnalysis": "No issues found",
+  "postRunCheck": "The final invalid timestamp-offset validator tightening was checked with all six session tests and Flutter analysis; valid mobile UTC envelopes used by this simulator journey are unchanged."
+}

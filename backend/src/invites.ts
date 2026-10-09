@@ -99,6 +99,13 @@ export function inviteRoutes(db: BookingDatabase, logFailure: FailureReporter, l
   router.get('/:code', async (request, response) => {
     response.json({ data: (await resolveInvite(db, request.params.code)).preview, requestId: response.locals.requestId });
   });
+  router.get('/:code/recipient-check', async (request, response) => {
+    const actor = await bookingActor(db, request.get('X-Demo-Actor-Id'), 'selecting an identity');
+    const invite = await resolveInvite(db, request.params.code);
+    const [match] = await rows<{ matches: boolean }>(db,
+      'SELECT contact IS NOT NULL AND contact=$2 AS matches FROM users WHERE id=$1', [actor.id, invite.recipientContact]);
+    response.json({ data: { matches: invite.rail === 'public' || match?.matches === true }, requestId: response.locals.requestId });
+  });
   // Claims honor issued, unexpired invites regardless of the creation switch or later assignment changes.
   router.post('/:code/claims', async (request, response) => {
     const completed = live.workStarted?.();

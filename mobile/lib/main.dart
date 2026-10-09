@@ -4,16 +4,19 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import 'readiness.dart';
+import 'api_config.dart';
+export 'api_config.dart' show apiBaseUrl;
+import 'guest_host.dart';
+import 'bounded_http.dart';
 
-const apiBaseUrl = String.fromEnvironment(
-  'API_BASE_URL',
-  defaultValue: 'http://127.0.0.1:3000',
-);
-
-void main() => runApp(const VelioApp());
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const VelioApp());
+}
 
 class VelioApp extends StatelessWidget {
-  const VelioApp({super.key, this.client});
+  const VelioApp({super.key, this.client, this.showConnection = false});
+  final bool showConnection;
   final http.Client? client;
 
   @override
@@ -22,7 +25,7 @@ class VelioApp extends StatelessWidget {
     theme: ThemeData(
       colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff205342)),
     ),
-    home: ConnectionScreen(client: client),
+    home: showConnection ? ConnectionScreen(client: client) : const GuestHost(),
   );
 }
 
@@ -35,7 +38,7 @@ class ConnectionScreen extends StatefulWidget {
 }
 
 class _ConnectionScreenState extends State<ConnectionScreen> {
-  late final http.Client _client;
+  late final BoundedHttp _transport;
   String? _requestId;
   bool _loading = true;
   bool _checking = false;
@@ -45,7 +48,10 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   @override
   void initState() {
     super.initState();
-    _client = widget.client ?? http.Client();
+    _transport = BoundedHttp(
+      client: widget.client,
+      timeout: const Duration(seconds: 5),
+    );
     _checkConnection();
   }
 
@@ -59,9 +65,10 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       _requestId = null;
     });
     try {
-      final response = await _client
-          .get(Uri.parse('$apiBaseUrl/api/ready'))
-          .timeout(const Duration(seconds: 5));
+      final response = await _transport.send(
+        'GET',
+        Uri.parse('$apiBaseUrl/api/ready'),
+      );
       final readiness = parseReadiness(
         response.statusCode,
         jsonDecode(response.body),
@@ -94,7 +101,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   @override
   void dispose() {
     _attempt++;
-    if (widget.client == null) _client.close();
+    _transport.dispose();
     super.dispose();
   }
 
