@@ -153,6 +153,7 @@ void main() {
             find.widgetWithText(TextField, 'Invitation code'),
             code,
           );
+          await tester.ensureVisible(find.text('View invitation'));
           await tester.tap(find.text('View invitation'));
         }
         await waitFor(

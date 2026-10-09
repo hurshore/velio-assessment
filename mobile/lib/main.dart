@@ -7,6 +7,7 @@ import 'readiness.dart';
 import 'api_config.dart';
 export 'api_config.dart' show apiBaseUrl;
 import 'guest_host.dart';
+import 'velio_theme.dart';
 import 'bounded_http.dart';
 
 void main() {
@@ -22,9 +23,8 @@ class VelioApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'Velio',
-    theme: ThemeData(
-      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff205342)),
-    ),
+    theme: VelioTheme.theme,
+    debugShowCheckedModeBanner: false,
     home: showConnection ? ConnectionScreen(client: client) : const GuestHost(),
   );
 }

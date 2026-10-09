@@ -31,6 +31,7 @@ function setup(create: (options: RequestInit) => Promise<Response>, detail = act
 
 test('explains recipient matching, trust, demo limits, expiry and no reserved seat, then creates a vouch for one contact', async () => {
   const fetch = setup(async () => ok(vouch, 201));
+  fireEvent.click(await screen.findByRole('button', { name: /Vouch for a contact/ }));
   const panel = await screen.findByRole('group', { name: 'Vouch for a contact' });
   for (const copy of [/only the person whose contact matches/i, /same format/i, /personally vouch/i, /not verified in this demo/i, /24 hours or when the activity starts/i,
     /does not reserve a seat/i, /3 of 4 seats remaining/]) {
@@ -45,11 +46,12 @@ test('explains recipient matching, trust, demo limits, expiry and no reserved se
   const [, options] = fetch.mock.calls.find(([url]) => String(url).endsWith('/invites'))!;
   expect(JSON.parse(options.body)).toEqual({ rail: 'vouch', recipientContact: 'Tunde@Example.com', platform: 'web', journeyId });
   // The public link panel keeps its own state.
-  expect(within(screen.getByRole('group', { name: 'Public share link' })).queryByDisplayValue(/VCHR2345EFGH/)).toBeNull();
+  expect(within(screen.getByRole('group', { name: 'Public share link', hidden: true })).queryByDisplayValue(/VCHR2345EFGH/)).toBeNull();
 });
 
 test('a missing contact is explained before any request, and server rejections keep the entered contact', async () => {
   const fetch = setup(async () => new Response(JSON.stringify({ error: { code: 'SELF_INVITE', message: 'You cannot vouch for your own contact.', retryable: false }, requestId: 'ui-test' }), { status: 403 }));
+  fireEvent.click(await screen.findByRole('button', { name: /Vouch for a contact/ }));
   const panel = await screen.findByRole('group', { name: 'Vouch for a contact' });
   fireEvent.click(within(panel).getByRole('button', { name: 'Create vouch' }));
   expect((await within(panel).findByRole('alert')).textContent).toMatch(/Enter the email address or phone number/);
@@ -62,6 +64,7 @@ test('a missing contact is explained before any request, and server rejections k
 
 test('a full activity cannot be vouched for', async () => {
   setup(async () => ok(vouch, 201), { ...activity, confirmedCount: 4, remainingSeats: 0 });
+  fireEvent.click(await screen.findByRole('button', { name: /Vouch for a contact/ }));
   const panel = await screen.findByRole('group', { name: 'Vouch for a contact' });
   expect(within(panel).getByText(/No seats remain/)).toBeTruthy();
   expect(within(panel).getByRole('button', { name: 'Create vouch' }).hasAttribute('disabled')).toBe(true);
@@ -69,6 +72,7 @@ test('a full activity cannot be vouched for', async () => {
 
 test('validation errors are tied to the contact input and creation is announced in a persistent status region', async () => {
   setup(async () => ok(vouch, 201));
+  fireEvent.click(await screen.findByRole('button', { name: /Vouch for a contact/ }));
   const panel = await screen.findByRole('group', { name: 'Vouch for a contact' });
   const input = within(panel).getByLabelText(/Contact's email or phone/);
   const region = within(panel).getByRole('status');
@@ -86,6 +90,7 @@ test('validation errors are tied to the contact input and creation is announced 
 
 test('editing the contact hides the earlier link without implying it was revoked', async () => {
   setup(async () => ok(vouch, 201));
+  fireEvent.click(await screen.findByRole('button', { name: /Vouch for a contact/ }));
   const panel = await screen.findByRole('group', { name: 'Vouch for a contact' });
   const input = within(panel).getByLabelText(/Contact's email or phone/);
   fireEvent.change(input, { target: { value: 'tunde@example.com' } });
@@ -108,6 +113,7 @@ test('the draft, a pending creation and its result survive a details refresh, an
   vi.stubGlobal('fetch', fetch);
   const delivery = new ViewDelivery();
   const view = render(<ActivityDetails id={activity.id} actorId={actorId} journeyId={journeyId} close={() => {}} delivery={delivery} />);
+  fireEvent.click(await screen.findByRole('button', { name: /Vouch for a contact/ }));
   const panel = () => screen.getByRole('group', { name: 'Vouch for a contact' });
   await screen.findByRole('group', { name: 'Vouch for a contact' });
   fireEvent.change(within(panel()).getByLabelText(/Contact's email or phone/), { target: { value: 'tunde@example.com' } });
@@ -138,6 +144,7 @@ test('a response that arrives after switching identity away and back does not ap
   const delivery = new ViewDelivery();
   const details = (actor: string) => <ActivityDetails id={activity.id} actorId={actor} journeyId={journeyId} close={() => {}} delivery={delivery} />;
   const view = render(details(actorId));
+  fireEvent.click(await screen.findByRole('button', { name: /Vouch for a contact/ }));
   const panel = () => screen.getByRole('group', { name: 'Vouch for a contact' });
   await screen.findByRole('group', { name: 'Vouch for a contact' });
   const input = within(panel()).getByLabelText(/Contact's email or phone/);
@@ -151,5 +158,25 @@ test('a response that arrives after switching identity away and back does not ap
   finish(ok(vouch, 201));
   await new Promise(resolve => setTimeout(resolve, 20));
   expect(within(panel()).queryByDisplayValue(/VCHR2345EFGH/)).toBeNull();
-  expect(within(panel()).getByRole('status').textContent).toBe('');
+  expect(within(panel()).getByRole('status').textContent).toMatch(/previous vouch request may have completed/);
+});
+
+
+test('reload restores a vouch draft and issued link only for its actor and activity', async () => {
+  setup(async () => ok(vouch, 201));
+  fireEvent.click(await screen.findByRole('button', { name: /Vouch for a contact/ }));
+  fireEvent.change(screen.getByLabelText(/Contact's email or phone/), { target: { value: 'tunde@example.com' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create vouch' }));
+  await screen.findByDisplayValue(`${window.location.origin}/invite/VCHR2345EFGH`);
+  cleanup();
+  const restored = render(<ActivityDetails id={activity.id} actorId="" journeyId={journeyId} close={() => {}} delivery={new ViewDelivery()} />);
+  restored.rerender(<ActivityDetails id={activity.id} actorId={actorId} journeyId={journeyId} close={() => {}} delivery={new ViewDelivery()} />);
+  fireEvent.click(await screen.findByRole('button', { name: /Vouch for a contact/ }));
+  expect(screen.getByDisplayValue('tunde@example.com')).toBeTruthy();
+  expect(screen.getByDisplayValue(`${window.location.origin}/invite/VCHR2345EFGH`)).toBeTruthy();
+  cleanup();
+  render(<ActivityDetails id={activity.id} actorId="another-actor" journeyId={journeyId} close={() => {}} delivery={new ViewDelivery()} />);
+  fireEvent.click(await screen.findByRole('button', { name: /Vouch for a contact/ }));
+  expect(screen.queryByDisplayValue('tunde@example.com')).toBeNull();
+  expect(screen.queryByDisplayValue(`${window.location.origin}/invite/VCHR2345EFGH`)).toBeNull();
 });

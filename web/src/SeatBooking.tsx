@@ -1,3 +1,5 @@
+import { ErrorNotice } from './ErrorNotice';
+import { formatPrice } from './api';
 import { useEffect, useRef, useState } from 'react';
 import { api, ApiError, message, parseBookingState, persist, stored, type Activity, type BookingState } from './api';
 
@@ -86,8 +88,8 @@ export function SeatBooking({ activity, actorId, journeyId, refresh, stale = fal
     {!actorId ? <p>Select a demo identity to book one seat.</p> : <>
       {phase === 'confirmed' && booking ? <>
         <p>Your seat is confirmed.</p>
-        <p>Booking: {booking.id} · Plan: {booking.planId}</p>
-        <p>Confirmed price: {booking.priceMinor} {booking.currency} minor units. This demo does not collect payment.</p>
+        <details className="diagnostics"><summary>Booking reference</summary><p>Booking: {booking.id} · Plan: {booking.planId}</p></details>
+        <p>Confirmed price: {formatPrice(booking.priceMinor, booking.currency)}. This demo does not collect payment.</p>
       </> : <>
         {phase === 'checking' ? <p role="status">Checking your confirmation…</p> : null}
         {unavailable && phase !== 'uncertain' ? <p>{seats === 0 ? 'This activity is sold out.' : 'This activity is no longer bookable.'}</p> : null}
@@ -96,7 +98,7 @@ export function SeatBooking({ activity, actorId, journeyId, refresh, stale = fal
         </button>
         {phase === 'lookup_failed' || phase === 'uncertain' || phase === 'rejected' ? <button onClick={() => void recover()}>{phase === 'lookup_failed' ? 'Retry confirmation lookup' : 'Check confirmation'}</button> : null}
       </>}
-      {error ? <p role="alert">{error}</p> : null}
+      {error ? <ErrorNotice text={error} /> : null}
       {warning ? <p role="status">{warning}</p> : null}
     </>}
   </section>;

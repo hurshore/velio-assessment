@@ -13,7 +13,7 @@ const activity = { id: '22222222-2222-4222-8222-222222222222', hostId: '11111111
 const response = (data: unknown) => new Response(JSON.stringify({ data, requestId: 'test' }), { status: 200 });
 afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); });
 for (const [variant, enabled, copy] of [
-  ['treatment', true, 'This activity is assigned to the invitation experience.'],
+  ['treatment', true, 'Good plans are better together.'],
   ['control', true, 'This activity supports ordinary booking. New invitations are unavailable.'],
   ['treatment', false, 'New invitations are temporarily unavailable. You can still book a seat.'],
 ] as const) {
@@ -55,7 +55,7 @@ test('failed exposure delivery preserves the shown activity and retries the orig
   const delivery = new ViewDelivery();
   render(<><ActivityDetails id={activity.id} actorId="" journeyId="44444444-4444-4444-8444-444444444444" close={() => {}} delivery={delivery} /><ViewDeliveryStatus delivery={delivery} /></>);
   await screen.findByText(/Exposure unavailable/);
-  expect(screen.getByText('This activity is assigned to the invitation experience.')).toBeTruthy();
+  expect(screen.getByText('Good plans are better together.')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Retry view tracking' }));
   await waitFor(() => expect(events.filter(event => event.name === 'experiment_exposed')).toHaveLength(2));
   const exposures = events.filter(event => event.name === 'experiment_exposed');
@@ -138,7 +138,7 @@ test('unchanged booking/details refresh does not resend exposure; a changed disp
   expect(events.filter(e=>e.name==='experiment_exposed')).toHaveLength(1);
   fireEvent.click(screen.getByRole('button',{name:'Refresh details'}));
   await waitFor(()=>expect(detailReads).toBe(3));
-  await screen.findByText('This activity is assigned to the invitation experience.');
+  await screen.findByText('Good plans are better together.');
   expect(events.filter(e=>e.name==='experiment_exposed')).toHaveLength(1);
   enabled=false;
   fireEvent.click(screen.getByRole('button',{name:'Refresh details'}));
@@ -182,7 +182,7 @@ test('identity change waits for its own policy and never reports the previous ac
   const delivery=new ViewDelivery();
   const props={id:activity.id,journeyId:'44444444-4444-4444-8444-444444444444',close:()=>{},delivery};
   const view=render(<ActivityDetails {...props} actorId={activity.hostId}/>);
-  await screen.findByText('This activity is assigned to the invitation experience.');
+  await screen.findByText('Good plans are better together.');
   await waitFor(()=>expect(events.filter(e=>e.name==='experiment_exposed')).toHaveLength(1));
   view.rerender(<ActivityDetails {...props} actorId={outsider}/>);
   await waitFor(()=>expect(headers).toContain(outsider));

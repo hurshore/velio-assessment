@@ -184,6 +184,8 @@ Use a connection pool allowing overlapping transactions and coordinated starts; 
 
 ## 3. Product implementation plan
 
+UX refinement (#27, 9 October 2026): Explore is the default browsable web route. Hosting, creation and activity details have dedicated URLs, with identity selection requested at the action boundary. Creation drafts survive deliberate navigation within the same actor/session; prices are entered in currency units and converted exactly using the currency’s fractional precision. Details prioritize the commitment and confirmed participants, with contextual booking and a two-choice invitation flow. Issued links and vouch drafts remain actor/activity scoped through refresh. Guest web and Flutter use the same concise hierarchy and preserve preview-before-identity, recovery, cache and live semantics. Reviewer diagnostics remain accessible in a disclosure.
+
 ### 3.1 Host journey
 
 1. Select a stable demo identity and switch to the host view.
@@ -361,6 +363,8 @@ Implementation entries retain the original planned decision and explain changes 
 | 9 October 2026 | #9 refreshes versioned membership and online invitation eligibility while preserving atomic guest recovery. | PR #23 review corrections track participant version independently of HTTP preview version, publish candidate identity state only after its atomic save, and add database-derived `activity.inviteState` to invite-aware live snapshots. Unchanged cache data is not rewritten; meaningful identity/claim/recovery changes still flush immediately. | HTTP freshness cannot prove cached participant freshness, and device time cannot decide server eligibility. Failed/rejected candidates preserve the original actor; local recovery-write failures retain intent/key and report confirmed bookings accurately. The shared live protocol remains additive for legacy subscribers. |
 
 Final verification (#12), 9 October 2026: the live report and operational summary now expose the existing §4.2 threshold explicitly as an analysis status per timing group. The count uses distinct booking updates with subscribers (including misses), excluding zero-demand observations; exact and proxy samples are never combined. This closes a reporting omission without changing the two-second target, coverage rules, production deadlines, or original reasoning above. Native handoff and local workload evidence is recorded in `docs/verification/final-handoff.md`; attendance remains unmeasured.
+
+| 9 October 2026 | §3.1–3.5 establishes working host/booker/guest journeys and puts polish after recovery verification. | #27 refines the integrated prototype with navigable task screens, reference-inspired pale grey/white surfaces, lime actions, purple guidance, rounded cards and native guest continuity. Uses system sans-serif fallbacks and intentional abstract activity art; no invented photos or trust/community data. Currency-unit input converts via decimal strings at the currency’s supported precision. | The original stacked forms obscured the next action. Route/state owners retain delivery IDs, pending booking keys and actor/activity boundaries. Original timezone, booking, attribution, live ACK, holdout and offline rules remain authoritative. |
 
 ## Reference checks
 

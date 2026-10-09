@@ -1,3 +1,4 @@
+import { ErrorNotice } from './ErrorNotice';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ViewDeliveryStatus } from './ViewDeliveryStatus';
 import { ViewDelivery, type RenderedInviteOpenEvent } from './view-delivery';
@@ -58,7 +59,7 @@ export function GuestInvite({ code: urlCode }: { code: string }) {
   return <>
     <p role="status" className="live">{load.status === 'loading' ? 'Loading your invitation…' : ''}</p>
     {load.status === 'error' ? <section aria-live="polite">
-      <p role="alert" id="invite-error" tabIndex={-1}>We could not load this invitation. {load.message}</p>
+      <div id="invite-error" tabIndex={-1}><ErrorNotice text={`We could not load this invitation. ${load.message}`} /></div>
       <button onClick={() => setAttempt(value => value + 1)}>Try again</button>
     </section> : null}
     {ready ? <RenderedInvite key={`${ready.code}:${ready.state}`} preview={ready} journeyId={journeyId} delivery={delivery} /> : null}
@@ -71,7 +72,7 @@ export function GuestInvite({ code: urlCode }: { code: string }) {
         <button disabled={load.status === 'loading'}>View invitation</button>
       </form>
     </section> : null}
-    <ViewDeliveryStatus delivery={delivery} />
+<a className="text-link" href="/invite">Try another code</a><ViewDeliveryStatus delivery={delivery} />
   </>;
 }
 
@@ -108,7 +109,7 @@ function RenderedInvite({ preview, journeyId, delivery }: { preview: InvitePrevi
       <p>Seats are confirmed only when you claim one in the Velio app. Open the app directly, or enter this code there:</p>
       <p className="invite-code">{groupedCode(preview.code)}</p>
       <a className="button-link" href={appLink(preview.code, journeyId)}>Open in the Velio app</a>
-      <p className="hint">If the app does not open, install it, then choose “Enter a code”. The link cannot carry your code through a fresh install. Expires <time dateTime={preview.expiresAt}>{new Date(preview.expiresAt).toLocaleString()}</time>.</p>
-    </div> : null}
+      <p className="hint">If the app does not open, install it, then enter the code above. The link cannot carry your code through a fresh install. Expires <time dateTime={preview.expiresAt}>{new Date(preview.expiresAt).toLocaleString()}</time>.</p>
+    </div> : <div className="app-handoff"><h3>Already have a booking?</h3><p>Open the app with your original demo identity to recover your confirmation.</p><p className="invite-code">{groupedCode(preview.code)}</p><a className="button-link" href={appLink(preview.code, journeyId)}>Recover booking in the app</a></div>}
   </section>;
 }

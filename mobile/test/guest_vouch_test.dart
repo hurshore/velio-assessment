@@ -159,6 +159,10 @@ void main() {
       }
       expect(session.displayName, 'Entered name');
       expect(session.contact, 'wrong@example.com');
+      expect(find.textContaining('This vouch is for one intended contact.'), findsOneWidget);
+      await tester.ensureVisible(find.text('Technical error details'));
+      await tester.tap(find.text('Technical error details'));
+      await tester.pumpAndSettle();
       expect(find.textContaining('recipient-reference'), findsOneWidget);
       await tester.ensureVisible(find.text('Matching recipient'));
       await tester.runAsync(() => tester.tap(find.text('Matching recipient')));

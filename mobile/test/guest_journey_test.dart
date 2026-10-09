@@ -282,6 +282,7 @@ void main() {
         'bad',
       );
       await tester.runAsync(() async {
+        await tester.ensureVisible(find.text('View invitation'));
         await tester.tap(find.text('View invitation'));
       });
       await settle(tester);
@@ -322,6 +323,7 @@ void main() {
         'abcd-2345-efgh',
       );
       await tester.runAsync(() async {
+        await tester.ensureVisible(find.text('View invitation'));
         await tester.tap(find.text('View invitation'));
         await Future<void>.delayed(const Duration(milliseconds: 100));
       });
@@ -502,6 +504,7 @@ void main() {
       offline = true;
       await tester.ensureVisible(find.text('View invitation'));
       await tester.runAsync(() async {
+        await tester.ensureVisible(find.text('View invitation'));
         await tester.tap(find.text('View invitation'));
         await Future<void>.delayed(const Duration(milliseconds: 100));
       });
@@ -727,6 +730,7 @@ void main() {
       expect(session.journeyId, webJourney);
       malformed = false;
       await tester.runAsync(() async {
+        await tester.ensureVisible(find.text('View invitation'));
         await tester.tap(find.text('View invitation'));
       });
       await settle(tester);
@@ -862,6 +866,7 @@ void main() {
     await settle(tester);
     offline = true;
     await tester.runAsync(() async {
+      await tester.ensureVisible(find.text('View invitation'));
       await tester.tap(find.text('View invitation'));
       await Future<void>.delayed(const Duration(milliseconds: 100));
     });
