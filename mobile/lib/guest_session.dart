@@ -42,6 +42,15 @@ bool _absoluteTimestamp(Object? value) {
   return day.year == parts[0] && day.month == parts[1] && day.day == parts[2];
 }
 
+class PendingClaim {
+  PendingClaim._(String saved)
+    : actorId = saved.split(':')[0],
+      code = saved.split(':')[1];
+  final String actorId, code;
+  bool matches(String? actor, String? invitationCode) =>
+      actorId == actor && code == invitationCode;
+}
+
 class GuestSession {
   GuestSession._(this.file, this._data);
   final File file;
@@ -68,8 +77,10 @@ class GuestSession {
     return value == null ? null : Map<String, dynamic>.from(value as Map);
   }
 
-  List<String> get pendingClaims =>
-      List<String>.from(_data['pendingClaims'] as List? ?? []);
+  List<PendingClaim> get pendingClaims =>
+      List<String>.from(_data['pendingClaims'] as List? ?? [])
+          .map(PendingClaim._)
+          .toList();
   String? get actorId => _data['actorId'] as String?;
   List<Map<String, dynamic>> get pendingEvents =>
       (_data['events'] as List? ?? [])

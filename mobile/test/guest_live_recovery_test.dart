@@ -81,6 +81,10 @@ void main() {
       expect(find.textContaining('Saved/offline details'), findsOneWidget);
       expect(find.text('Participant 1'), findsOneWidget);
       expect(find.text('Claim my seat'), findsNothing);
+      expect(
+        restored.pendingEvents.map((event) => event['name']),
+        contains('invite_opened'),
+      );
       offline = false;
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(seconds: 4)),
@@ -286,6 +290,121 @@ void main() {
         isNotNull,
       );
       expect(session.code, fixture.code);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+  testWidgets(
+    'recovering an earlier same-code claim never shows another identity confirmation',
+    (tester) async {
+      const bookedActor = '44444444-4444-4444-8444-444444444444';
+      final booking = {
+        'id': '66666666-6666-4666-8666-666666666666',
+        'activityId': fixture.activityId,
+        'planId': fixture.planId,
+        'userId': bookedActor,
+        'priceMinor': 2500,
+        'currency': 'NGN',
+        'confirmedAt': '2026-10-09T12:00:00Z',
+      };
+      final client = MockClient((request) async {
+        final path = request.url.path;
+        if (path.endsWith('/events')) {
+          return fixture.envelope({
+            'id': jsonDecode(request.body)['id'],
+            'accepted': true,
+          }, 202);
+        }
+        if (path.endsWith('/booking')) {
+          return fixture.envelope({
+            'booking': request.headers['X-Demo-Actor-Id'] == bookedActor
+                ? booking
+                : null,
+            'availability': {
+              'activityId': fixture.activityId,
+              'planId': fixture.planId,
+              ...Map<String, dynamic>.from(
+                fixture.preview()['activity'] as Map,
+              ),
+            },
+          });
+        }
+        if (path == '/api/identities') {
+          return fixture.envelope([
+            {'id': bookedActor, 'displayName': 'Booked guest', 'generation': 0},
+          ]);
+        }
+        if (path.startsWith('/api/identities/')) {
+          return fixture.envelope({
+            'id': path.endsWith(bookedActor) ? bookedActor : fixture.actorId,
+            'displayName': path.endsWith(bookedActor)
+                ? 'Booked guest'
+                : 'Pending guest',
+            'generation': 0,
+          });
+        }
+        return fixture.envelope(fixture.preview());
+      });
+      final api = GuestApi(client: client);
+      addTearDown(() {
+        api.dispose();
+        client.close();
+      });
+      String? originalKey;
+      await tester.runAsync(() async {
+        await session.enter(fixture.code);
+        await session.selectActor(fixture.actorId);
+        originalKey = await session.startClaim(fixture.actorId, fixture.code);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: GuestScreen(
+              session: session,
+              api: api,
+              links: const Stream.empty(),
+              liveConnect: (_) async => FixtureSocket(
+                withParticipants(
+                  Map<String, dynamic>.from(
+                    fixture.preview()['activity'] as Map,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      });
+      await fixture.settle(tester);
+      await tester.ensureVisible(find.text('Choose demo identity'));
+      await tester.runAsync(
+        () => tester.tap(find.text('Choose demo identity')),
+      );
+      await fixture.settle(tester);
+      await tester.ensureVisible(find.text('Booked guest'));
+      await tester.runAsync(() => tester.tap(find.text('Booked guest')));
+      for (
+        var attempt = 0;
+        find.text('Your seat is confirmed').evaluate().isEmpty && attempt < 10;
+        attempt++
+      ) {
+        await fixture.settle(tester);
+      }
+      expect(find.text('Your seat is confirmed'), findsOneWidget);
+      await tester.ensureVisible(find.text('Recover earlier confirmation'));
+      await tester.runAsync(
+        () => tester.tap(find.text('Recover earlier confirmation')),
+      );
+      for (var attempt = 0; attempt < 10; attempt++) {
+        await fixture.settle(tester);
+      }
+      expect(session.actorId, fixture.actorId);
+      expect(find.text('Your seat is confirmed'), findsNothing);
+      expect(find.text('Check / retry confirmation'), findsOneWidget);
+      expect(session.hasPendingClaim(fixture.actorId, fixture.code), true);
+      expect(
+        await tester.runAsync(
+          () => session.claimKey(fixture.actorId, fixture.code),
+        ),
+        originalKey,
+      );
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );

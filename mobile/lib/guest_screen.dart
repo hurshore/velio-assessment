@@ -92,6 +92,8 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    _foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     _code = TextEditingController(text: session.code);
     _name = TextEditingController(text: session.displayName);
     _contact = TextEditingController(text: session.contact);
@@ -178,15 +180,7 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
         final visibleVersion = previous.availability.version;
         if (receivedVersion < visibleVersion ||
             receivedVersion < (_confirmation?.availability.version ?? 0)) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted &&
-                _foreground &&
-                currentVersion == _version &&
-                !_stale &&
-                identical(_live, live)) {
-              live.acknowledge(snapshot);
-            }
-          });
+          _acknowledgeAfterFrame(live, snapshot, currentVersion);
           return;
         }
         setState(() {
@@ -201,15 +195,7 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
           _stale = false;
         });
         unawaited(_saveDetails());
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted &&
-              _foreground &&
-              currentVersion == _version &&
-              !_stale &&
-              identical(_live, live)) {
-            live.acknowledge(snapshot);
-          }
-        });
+        _acknowledgeAfterFrame(live, snapshot, currentVersion);
         if (reconnecting && !_busy && session.actorId != null) {
           unawaited(_refreshOwn());
         }
@@ -218,6 +204,22 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
     _live = live;
     _liveActivity = preview.activityId;
     live.start();
+  }
+
+  void _acknowledgeAfterFrame(
+    GuestLive live,
+    LiveSnapshot snapshot,
+    int renderVersion,
+  ) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted &&
+          _foreground &&
+          renderVersion == _version &&
+          !_stale &&
+          identical(_live, live)) {
+        live.acknowledge(snapshot);
+      }
+    });
   }
 
   Future<void> _refreshOwn() async {
@@ -368,6 +370,13 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
     setState(() {
       _busy = true;
       _message = null;
+      if (_confirmation != null &&
+          _confirmation?.booking?['userId'] != session.actorId) {
+        _confirmation = null;
+      }
+      if (_identity != null && _identity!.id != session.actorId) {
+        _identity = null;
+      }
       if (!sameInvitation) {
         _preview = null;
         _confirmation = null;
@@ -383,6 +392,18 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
       _claimBlocked = false;
       _recipientMatched = true;
     });
+    final savedPreview = sameInvitation ? null : _preview;
+    final savedActor = session.actorId;
+    if (savedPreview != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted &&
+            _foreground &&
+            version == _version &&
+            identical(_preview, savedPreview)) {
+          unawaited(_rendered(savedPreview, savedActor));
+        }
+      });
+    }
     try {
       await session.enter(_code.text, linkedJourney: linkedJourney);
       final preview = await api.preview(normalizeCode(_code.text));
@@ -395,7 +416,7 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
       final actor = session.actorId;
       // Capture the anonymous/selected context of this rendered preview before later identity setup.
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && version == _version) {
+        if (mounted && _foreground && version == _version) {
           unawaited(_rendered(preview, actor));
         }
       });
@@ -580,7 +601,10 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
       final pending = session.hasPendingClaim(actor, preview.code);
       await _confirm(result, preview, actor, celebrate: pending);
     } else {
-      setState(() => _uncertain = session.hasPendingClaim(actor, preview.code));
+      setState(() {
+        _confirmation = null;
+        _uncertain = session.hasPendingClaim(actor, preview.code);
+      });
     }
   }
 
@@ -625,7 +649,7 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
       return;
     }
     if (session.pendingClaims.any(
-      (intent) => intent != '${_identity!.id}:${_preview!.code}',
+      (intent) => !intent.matches(_identity!.id, _preview!.code),
     )) {
       return;
     }
@@ -763,7 +787,7 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
                   Semantics(liveRegion: true, child: Text(_message!)),
                 if (_preview case final preview?) ..._details(preview),
                 for (final intent in session.pendingClaims.where(
-                  (intent) => intent != '${session.actorId}:${_preview?.code}',
+                  (intent) => !intent.matches(session.actorId, _preview?.code),
                 )) ...[
                   const Text(
                     'An earlier claim is still uncertain. Recover it before claiming another seat.',
@@ -772,9 +796,8 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
                     onPressed: _busy
                         ? null
                         : () async {
-                            final parts = intent.split(':');
-                            await session.selectActor(parts[0]);
-                            _code.text = parts[1];
+                            await session.selectActor(intent.actorId);
+                            _code.text = intent.code;
                             await _load();
                           },
                     child: const Text('Recover earlier confirmation'),
@@ -943,7 +966,7 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
                     _claimBlocked ||
                     !_foreground ||
                     session.pendingClaims.any(
-                      (intent) => intent != '${_identity!.id}:${preview.code}',
+                      (intent) => !intent.matches(_identity!.id, preview.code),
                     ) ||
                     (!_uncertain && (!_liveReady || !_recipientMatched)) ||
                     (_stale && !_uncertain) ||
