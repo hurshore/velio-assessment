@@ -1,6 +1,6 @@
 # Velio assessment
 
-Runnable Express/TypeScript API, React/TypeScript/Vite host/booker web client, and Flutter public-invitation guest client. [PLANS.md](PLANS.md) is the product and technical specification. The web supports persistent organic demo identities, activity creation/discovery/details, committed seat booking/recovery, durable rendered-view events, public share links and recipient-bound contact vouches with a responsive guest preview, and attributed invite claims through the shared booking API. Live availability, committed participants, delivery recovery and operational delivery metrics are implemented. Flutter supports installed-app links/code entry, preview before identity, public claims, persistent request/event recovery and confirmed-success haptics. Flutter vouches and mobile live/offline recovery remain #9; product metrics remain a subsequent ticket.
+Runnable Express/TypeScript API, React/TypeScript/Vite host/booker web client, and Flutter public-invitation guest client. [PLANS.md](PLANS.md) is the product and technical specification. The web supports persistent organic demo identities, activity creation/discovery/details, committed seat booking/recovery, durable rendered-view events, public share links and recipient-bound contact vouches with a responsive guest preview, and attributed invite claims through the shared booking API. Live availability, committed participants, delivery recovery, operational delivery metrics, and the queryable technical/product metrics and holdout outcomes are implemented. Flutter supports installed-app links/code entry, preview before identity, public claims, persistent request/event recovery and confirmed-success haptics. Flutter vouches and mobile live/offline recovery remain #9.
 
 ## Toolchains
 
@@ -14,13 +14,13 @@ npm run setup
 npm run mobile:get
 npm run infra:up
 npm run migrate
-npm run seed       # optional, labelled synthetic hosts and paid/free activities
+npm run seed       # optional, labelled synthetic hosts, activities and a metric demonstration
 npm run dev
 ```
 
 `setup` creates an ignored `.env` with different random migration/runtime passwords only when the file is absent. For an existing file it preserves every byte and reports missing/blank required keys with a nonzero exit. Fill only those entries using `.env.example`, with the credentials already configured in PostgreSQL; do not regenerate passwords for an existing volume. See [.env.example](.env.example) for names. Compose reads root `.env`; backend commands load it explicitly. Local dependency ports bind only to loopback. PostgreSQL creates the runtime login on first initialization; it cannot create schema objects. Feature migrations grant domain access explicitly. Redis is local-only and unauthenticated. Never use this local setup for production.
 
-The migration runner creates its ledger and applies numbered SQL files once, under an advisory lock and per-file transactions. Domain migrations establish organic identities, immutable acquisition history, activities, one shared plan, confirmed bookings, scoped idempotency results, availability outbox, and durable events. `RUNTIME_DB_USER` selects the existing runtime role receiving explicit grants. `npm run seed` uses migration credentials to add two visibly labelled synthetic hosts and paid/free and started/cancelled activities; replaying it keeps their IDs/plans/events stable and preserves existing data. Run migrations with `MIGRATION_DATABASE_URL`, API with `DATABASE_URL` only. [Migration notes](backend/migrations/README.md).
+The migration runner creates its ledger and applies numbered SQL files once, under an advisory lock and per-file transactions. Domain migrations establish organic identities, immutable acquisition history, activities, one shared plan, confirmed bookings, scoped idempotency results, availability outbox, and durable events. `RUNTIME_DB_USER` selects the existing runtime role receiving explicit grants. `npm run seed` uses migration credentials to add two visibly labelled synthetic hosts, paid/free and started/cancelled activities, the attribution-chain scenario and a labelled product-metric demonstration; replaying it keeps their IDs/plans/events stable and preserves existing data. Run migrations with `MIGRATION_DATABASE_URL`, API with `DATABASE_URL` only. [Migration notes](backend/migrations/README.md).
 
 Existing database volumes retain their original passwords. Changing `.env` does not change roles in a volume. Preserve existing data or reset deliberately with `docker compose down -v` (deletes the local database), then start again. If ports 5432/6379 are occupied, stop the conflicting local service or update Compose mappings and the matching URLs together.
 
@@ -132,6 +132,24 @@ The dispatcher leases durable booking-owned outbox rows, publishes to `velio:gro
 [Live delivery metrics](http://127.0.0.1:3000/api/metrics/live) separate exact single-process commit-observed timing from outbox-creation **pre-commit proxy** recovery timing. Each group labels ACK-only per-booking and pooled p95, includes actual per-client quantiles and fully missed clients/bookings with no-data latency, and reports expected/acknowledged deliveries, pending updates, misses, eventual ACK coverage and on-time coverage. Reporting defaults to 24 hours (maximum seven days), bounds detail and explicitly marks partial reports. Disconnected/missing ACKs remain in the denominator. Synthetic/test scenarios are excluded unless `?includeTest=true`. No-data results are null; a fast successful sample does not establish every-client attainment. Exact multi-node timing correlation remains a follow-up.
 
 Focused checks: `node --env-file=.env --import tsx --test backend/test/live.test.ts` and `npm test --workspace web -- --run src/LiveActivity.test.tsx src/SeatBooking.test.tsx`. The service suite owns a temporary database and two actual API processes; a TCP proxy interrupts only their Redis connections. It exercises publication retries, periodic recovery, subscription races, API restart, missing/late ACKs and 50 overlapping bookings. [Verification and timing limitations](docs/verification/live-availability.md).
+
+## Queryable technical metrics, funnels and holdout outcomes
+
+[Operational summary](http://127.0.0.1:3000/api/metrics/summary) and [product queries](http://127.0.0.1:3000/api/metrics/product) share the live report's parameters (`includeTest`, `from`/`to`, default 24h, maximum seven days).
+
+The summary reports:
+- integrity as a global current-state check: oversells and counter mismatches across every activity, with detail capped at 100 rows and complete totals;
+- raw booking outcome counts, attempts, retried intents and the technical-error rate;
+- logical-intent reliability, S/(S+F) with the conservative S/(S+F+U) companion, keeping replay-only, sold-out and invalid intents visible but outside the rates;
+- live-delivery headline figures computed by the same function as `/api/metrics/live`.
+
+The product report computes booker-to-inviter share, open-to-claim conversion, K by frozen acquisition rail and the treatment/control holdout comparison. Each block carries counts, Wilson or Welch 95% intervals, the target/trigger from `backend/src/metric-policy.ts`, and a `no_data`/`insufficient_sample`/`observed` status that never fabricates 0%. Conversion uses deduplicated `(invite, journey)` units from the `metric_invite_open_units` SQL view, which documents how client open times are clamped and how much clock skew a claim may absorb. Synthetic/test data stays out of windowed metrics unless `includeTest=true`.
+
+Each report runs on one pooled connection in a read-only snapshot, two reports at a time, with the API's 1.5s statement deadline. Measured locally, a 7-day `/product` report takes about 0.27s with 525k events and 0.79s with 1.3M; at 2.6M events the full-history open scan exceeds the deadline and returns a retryable 500. See [the verification report](docs/verification/product-metrics.md) for these numbers and the deferred fix.
+
+`npm run seed` adds a labelled, production-shaped metric demonstration in the window `2026-09-01T00:00:00Z..2026-09-08T00:00:00Z` (`includeTest=true`). Its expected results are documented and checked by `backend/test/seed.test.ts`. Boundary, clock-skew and integrity-violation cases are test-only fixtures in `backend/test/metrics.test.ts`. Real 30%/25% attainment is not claimed.
+
+Focused checks: `node --env-file=.env --import tsx --test backend/test/metrics.test.ts backend/test/seed.test.ts`. Evidence: [the product metrics report](docs/verification/product-metrics.md). Contract: [queryable metrics](docs/contracts/api.md#queryable-technical-metrics-funnels-and-holdout-issue-10).
 
 ## Share a public link and preview it as a guest
 
