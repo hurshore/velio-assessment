@@ -1,13 +1,10 @@
-import { readFile } from 'node:fs/promises';
 import pg from 'pg';
+import { applySeeds } from './seed-files.js';
 const connectionString = process.env.MIGRATION_DATABASE_URL;
 if (!connectionString) throw new Error('MIGRATION_DATABASE_URL is required for labelled seeds.');
 const client = new pg.Client({ connectionString });
 try {
   await client.connect();
-  await client.query(await readFile(new URL('../seeds/host.sql', import.meta.url), 'utf8'));
-  await client.query(await readFile(new URL('../seeds/bookings.sql', import.meta.url), 'utf8'));
-  await client.query(await readFile(new URL('../seeds/experiments.sql', import.meta.url), 'utf8'));
-  await client.query(await readFile(new URL('../seeds/invites.sql', import.meta.url), 'utf8'));
-  console.log('Seeded treatment/control invitation cohorts, organic demo hosts, paid/free and started/cancelled activities, and a public-link attribution chain (synthetic, repeatable).');
+  await applySeeds(client);
+  console.log('Seeded treatment/control invitation cohorts, organic demo hosts, paid/free and started/cancelled activities, a public-link attribution chain, and a labelled product-metric demonstration (synthetic, repeatable).');
 } finally { await client.end(); }

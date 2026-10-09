@@ -56,3 +56,14 @@ points, so a contact it accepts cannot fail the check and surface as a 500. Exis
 revalidated. Like the other migrations, `010`/`011` add constraints and indexes in one transaction
 without `NOT VALID`/`CONCURRENTLY`. That is acceptable at demo scale; a populated production
 rollout would need staged validation, which is a follow-up.
+
+`012` adds the `metric_invite_open_units` view: one deduplicated `(invite, guest journey)`
+unit per earliest effective open, with rail, inviter generation, platform, displayed state,
+recovery flag, the claim deadline (earlier of 24h and activity start) and whether an
+attributed `spot_claimed` converted it. The view's header documents the timing policy (client
+open times clamped to [invite creation, receipt], a five-minute skew tolerance before the
+open) and marks a unit when its open or claim is marked. It also adds `analytics_events`
+indexes on `(name, occurred_at)` and `(invite_id, journey_id, name)` for windowed reads and
+per-journey claim lookups. Runtime receives SELECT on the view only; no historical row
+changes. The view still scans the full open history per evaluation; see
+`docs/verification/product-metrics.md` for measured limits.
