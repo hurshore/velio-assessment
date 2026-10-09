@@ -144,3 +144,15 @@ test('loading progress is announced through a status region that stays mounted',
   expect(region.isConnected).toBe(true);
   expect(region.textContent).toBe('');
 });
+
+test('a vouch preview explains recipient-bound eligibility and demo matching without any contact', async () => {
+  visit('/invite/VCHR2345EFGH', async () => ok({ ...preview, code: 'VCHR2345EFGH', rail: 'vouch', trust: 'vouch' }));
+  expect(await screen.findByRole('heading', { name: 'Supper club' })).toBeTruthy();
+  expect(screen.getByText(/Amara vouched for you/)).toBeTruthy();
+  expect(screen.getByText(/personal vouch for one specific contact/)).toBeTruthy();
+  expect(screen.getByText(/contact saved on your demo identity/)).toBeTruthy();
+  expect(screen.getByText(/not verified in this demo/)).toBeTruthy();
+  expect(screen.getByText(/does not hold a seat/)).toBeTruthy();
+  expect(screen.queryByText(/public link/i)).toBeNull();
+  expect(screen.getByRole('link', { name: 'Open in the Velio app' })).toBeTruthy();
+});

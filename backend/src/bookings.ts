@@ -2,14 +2,14 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { assignmentJson } from './experiments.js';
 import { DomainError, exact, object, platform, rows, text, uuid, type Database } from './domain.js';
-import { inviteStateSql, rejectUnavailableActivity, type PreviewState } from './invite-state.js';
+import { inviteStateSql, rejectRecipient, rejectUnavailableActivity, type PreviewState } from './invite-state.js';
 import type { AvailabilityEvent } from './outbox.js';
 import type { FailureReporter } from './diagnostics.js';
 
 export interface TransactionConnection extends Database { release(error?: boolean): void }
 export interface BookingDatabase extends Database { connect?: () => Promise<TransactionConnection> }
 // Invite claims carry only server-resolved invite facts; clients never supply attribution.
-export interface InviteClaim { id: string; inviterId: string; rail: 'public' }
+export interface InviteClaim { id: string; inviterId: string; rail: 'public' | 'vouch' }
 export interface Intent {
   operation: 'book_activity' | 'claim_invite'; actorId: string; activityId: string; key: string; platform: string; journeyId: string; requestId: string;
   invite?: InviteClaim;
@@ -99,13 +99,22 @@ export async function bookSeat(db: BookingDatabase, intent: Intent, actor: Actor
         if (reconciliation!.counter_mismatch || reconciliation!.oversold) throw new Error('Booking membership and capacity counter disagree');
         stage = 'eligibility';
         if (intent.invite) {
-          // Claims classify the link exactly as its preview does, from the locked activity row.
-          const [invite] = await rows<{ state: PreviewState }>(connection, `SELECT ${inviteStateSql('o.observed_at')} AS state
-            FROM invites i JOIN activities a ON a.id=i.activity_id CROSS JOIN LATERAL (SELECT clock_timestamp() AS observed_at) o WHERE i.id=$1`, [intent.invite.id]);
+          // Claims classify the link exactly as its preview does, from the locked activity row. Every
+          // redemption of an invite runs under its activity's lock, so recipient, expiry and redemption
+          // are judged here without a separate invite lock; the lock order stays activity-first.
+          const [invite] = await rows<{ state: PreviewState; recipientMatches: boolean; redeemed: boolean }>(connection, `SELECT ${inviteStateSql('o.observed_at')} AS state,
+            (i.rail <> 'vouch' OR COALESCE(i.recipient_contact = claimant.contact, false)) AS "recipientMatches",
+            (i.rail = 'vouch' AND EXISTS (SELECT 1 FROM invite_redemptions r WHERE r.invite_id=i.id)) AS redeemed
+            FROM invites i JOIN activities a ON a.id=i.activity_id JOIN users claimant ON claimant.id=$2
+            CROSS JOIN LATERAL (SELECT clock_timestamp() AS observed_at) o WHERE i.id=$1`, [intent.invite.id, actor.id]);
           rejectUnavailableActivity(invite!.state, 'it cannot be booked');
           stage = 'invite';
           if (intent.invite.inviterId === actor.id) throw new DomainError(403, 'SELF_INVITE', 'You cannot claim a seat through your own invitation.');
+          if (!invite!.recipientMatches) rejectRecipient('it cannot be claimed with this identity');
           if (invite!.state === 'expired') throw new DomainError(410, 'INVITE_EXPIRED', 'This invitation has expired. Ask for a new link.');
+          // Unreachable while contacts are unique and bookings permanent; kept so a second matching
+          // identity could never turn a used vouch into a second seat.
+          if (invite!.redeemed) throw new DomainError(409, 'ALREADY_REDEEMED', 'This vouch has already been used.');
         } else {
           const [clock] = await rows<{ started: boolean }>(connection, 'SELECT $1::timestamptz <= clock_timestamp() AS started', [activity.startsAt]);
           if (activity.status === 'cancelled') throw new DomainError(409, 'ACTIVITY_UNAVAILABLE', 'This activity is no longer bookable.');

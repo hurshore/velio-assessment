@@ -1,6 +1,6 @@
 # Velio assessment
 
-Runnable Express/TypeScript API, React/TypeScript/Vite host/booker web client, and Flutter public-invitation guest client. [PLANS.md](PLANS.md) is the product and technical specification. The web supports persistent organic demo identities, activity creation/discovery/details, committed seat booking/recovery, durable rendered-view events, public share links with a responsive guest preview, and attributed invite claims through the shared booking API. Live availability, committed participants, delivery recovery and operational delivery metrics are implemented. Flutter supports installed-app links/code entry, preview before identity, public claims, persistent request/event recovery and confirmed-success haptics. Specific-contact vouches, mobile live/offline recovery and product metrics remain subsequent tickets.
+Runnable Express/TypeScript API, React/TypeScript/Vite host/booker web client, and Flutter public-invitation guest client. [PLANS.md](PLANS.md) is the product and technical specification. The web supports persistent organic demo identities, activity creation/discovery/details, committed seat booking/recovery, durable rendered-view events, public share links and recipient-bound contact vouches with a responsive guest preview, and attributed invite claims through the shared booking API. Live availability, committed participants, delivery recovery and operational delivery metrics are implemented. Flutter supports installed-app links/code entry, preview before identity, public claims, persistent request/event recovery and confirmed-success haptics. Flutter vouches and mobile live/offline recovery remain #9; product metrics remain a subsequent ticket.
 
 ## Toolchains
 
@@ -71,7 +71,7 @@ For a physical phone, opt in with `HOST=0.0.0.0 npm run dev` and `API_BASE_URL=h
 - `docker-compose.yml`: PostgreSQL/Redis with health checks.
 - [Initial shared contracts](docs/contracts/api.md): envelopes/errors, identity/idempotency, rail/ancestry, journey/events, versioned availability. Health, organic identity, activity discovery/creation/details and narrow rendered-view ingestion routes exist now.
 
-Process health remains 200 during dependency outages; readiness returns a safe retryable 503. Probes are bounded and API responses do not disclose dependency credentials. Vouches, mobile cache/live recovery, product metrics, and `OWNERSHIP.md` remain in subsequent plan tickets. Booking evidence is in [the booking report](docs/verification/seat-booking.md). Host activity evidence is in [the slice verification report](docs/verification/host-activities.md).
+Process health remains 200 during dependency outages; readiness returns a safe retryable 503. Probes are bounded and API responses do not disclose dependency credentials. Flutter vouches and mobile cache/live recovery, product metrics, and `OWNERSHIP.md` remain in subsequent plan tickets. Booking evidence is in [the booking report](docs/verification/seat-booking.md). Host activity evidence is in [the slice verification report](docs/verification/host-activities.md).
 
 ## Create and inspect an activity
 
@@ -139,7 +139,7 @@ In a treatment activity, a host or confirmed booker sees a **Public share link**
 
 Opening `/invite/<code>` shows a responsive guest preview: inviter display name and role, activity details, local time with its IANA zone, price and current availability. Full, expired, started and cancelled links keep their context visible and do not prompt a claim. A valid link shows the grouped code and an **Open in the Velio app** link (`velio://invite/<code>?journey=<id>`, so the app can continue this guest journey); deferred deep linking is not assumed, so the code is the dependable path after a fresh install. `/invite` alone offers code entry. The web does not claim: guests claim in the Flutter app (#8) through the same API. Rendering the preview sends one `invite_opened` event with the persistent journey ID; fetching the preview does not, so link-unfurling bots are not counted. Production web hosting must serve `index.html` for `/invite/*` (Vite dev does this already).
 
-The API claim (`POST /api/invites/:code/claims`) runs inside the shared booking transaction, after the activity lock: existing bookings are recovered first, then cancellation/start, self-invite, expiry and capacity are checked, in that order. Booking, count/version, redemption edge, success events, idempotency result and outbox commit together. New identities created with `inviteCode` inherit generation, parent, root and rail from the invite's snapshot; returning users keep their signup history and gain only a redemption edge. `npm run seed` adds a labelled organic → invited → invited chain with a returning claimant (`Supper club · demo seed`); its fixed historical links are expired fixtures, so create fresh links to share.
+The API claim (`POST /api/invites/:code/claims`) runs inside the shared booking transaction, after the activity lock: existing bookings are recovered first, then cancellation/start, self-invite, the vouch recipient (vouches only), expiry and capacity are checked, in that order. Booking, count/version, redemption edge, success events, idempotency result and outbox commit together. New identities created with `inviteCode` inherit generation, parent, root and rail from the invite's snapshot; returning users keep their signup history and gain only a redemption edge. `npm run seed` adds a labelled organic → invited → invited chain with a returning claimant (`Supper club · demo seed`); its fixed historical links are expired fixtures, so create fresh links to share.
 
 Focused verification: `node --env-file=.env --import tsx --test backend/test/invites.test.ts` and `npm run test --workspace web -- src/PublicShare.test.tsx src/GuestInvite.test.tsx`. Evidence: [the public invitation report](docs/verification/public-invites.md). Contract: [public invitations](docs/contracts/api.md#public-invitations-issue-5).
 
@@ -149,3 +149,19 @@ Focused verification: `node --env-file=.env --import tsx --test backend/test/inv
 Run the app, enter the shared code or open `velio://invite/<code>?journey=<UUID>`, and inspect the public invitation before choosing a demo identity. Claim one seat and wait for the committed plan confirmation. The app stores identity, journey, event IDs and actor/code request keys across restart. An uncertain response checks existing membership and retains the key for retry; full/expired previews still allow an existing identity to recover confirmation. Haptics follow confirmed success only. Details show fetched availability; live subscriptions and the offline details cache belong to #9.
 
 [Mobile setup, link commands and recovery](mobile/README.md). [Simulator and event evidence](docs/verification/flutter-public-invites.md). With the API and an iOS simulator running, `node scripts/check-mobile-guest.mjs <simulator-id>` exercises the native route and real claim/recovery. Accept iOS's app-opening prompt when shown.
+
+## Vouch for one contact
+
+Next to the public link, a **Vouch for a contact** panel creates a single-use vouch for one email address or phone number. Before creation it explains:
+
+- only the identity whose saved contact matches can claim;
+- contacts are not verified in this demo, and matching ignores case, spaces and punctuation but nothing else, so both sides need the same format (no country code is inferred);
+- a vouch expires like a link and reserves no seat.
+
+The created link is labelled with its recipient. Editing the contact hides that link and announces that the vouch remains valid; hiding it does not revoke it. The draft, an in-flight creation and its result survive detail refreshes and reset when the identity changes. Earlier vouches are not listed: invite-history management is a follow-up.
+
+Identities can be created with an optional demo contact (set once, never shown to others). The guest preview of a vouch explains recipient-bound eligibility without revealing the contact. Claims check the claimant's contact inside the booking transaction. Wrong recipients get `RECIPIENT_MISMATCH` and consume nothing, while the recipient can always reopen their booking.
+
+Because contacts are unique and identities unauthenticated, anyone can discover whether a contact is registered. Matching is a demo simulation, not access control; production contact verification is out of scope.
+
+Focused verification: `node --env-file=.env --import tsx --test backend/test/vouches.test.ts` and `npm run test --workspace web -- src/VouchShare.test.tsx src/GuestInvite.test.tsx src/HostApp.test.tsx`. Evidence: [the vouch report](docs/verification/vouches.md). Contract: [vouches](docs/contracts/api.md#vouches-issue-6).
