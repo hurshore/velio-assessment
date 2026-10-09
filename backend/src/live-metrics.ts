@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import { DomainError, rows, type Database } from './domain.js';
-import { deliveryTargetMs, defaultReportingWindowMs, maxReportingWindowMs, maxReportRows, maxReportDetails } from './live-policy.js';
+import { rows, type Database } from './domain.js';
+import { deliveryTargetMs, maxReportRows, maxReportDetails } from './live-policy.js';
+import { parseReportingWindow } from './reporting.js';
 
 interface Sample { timing: string; eventId: string; clientId: string | null; expected: number; ackAt: Date | null; delay: number | null; expired: boolean }
 interface Distribution { expected: number; acknowledged: number; pending: number; misses: number; delays: number[] }
@@ -19,11 +20,7 @@ function detail(target: Distribution) {
 export function liveMetricsRoutes(db: Database, health?: () => { processId: string; measurementFailures: number }) {
   const router = Router();
   router.get('/live', async (request, response) => {
-    if (request.query.includeTest !== undefined && (typeof request.query.includeTest !== 'string' || !['true','false'].includes(request.query.includeTest))) throw new DomainError(400, 'INVALID_REQUEST', 'includeTest must be true or false.');
-    const includeTest = request.query.includeTest === 'true';
-    const to = request.query.to === undefined ? new Date() : date(request.query.to);
-    const from = request.query.from === undefined ? new Date(to.getTime()-defaultReportingWindowMs) : date(request.query.from);
-    if (to <= from || to.getTime()-from.getTime() > maxReportingWindowMs) throw new DomainError(400, 'INVALID_REQUEST', 'Reporting window must be positive and at most seven days.');
+    const { includeTest, from, to } = parseReportingWindow(request.query as Record<string, unknown>);
     const parameters = [includeTest, from.toISOString(), to.toISOString()];
     const samples = await rows<Sample>(db, `
       SELECT o.timing,o.event_id AS "eventId",o.expected,d.client_id AS "clientId",d.ack_at AS "ackAt",d.delay_ms AS delay,
@@ -90,10 +87,6 @@ export function liveMetricsRoutes(db: Database, health?: () => { processId: stri
       timingScope: 'One process clock; recovery is a pre-commit proxy. Multi-node exact correlation is unmeasured.' }, requestId: response.locals.requestId });
   });
   return router;
-}
-function date(value: unknown) {
-  if (typeof value !== 'string' || !/^\d{4}-\d\d-\d\dT.*(?:Z|[+-]\d\d:\d\d)$/.test(value) || !Number.isFinite(Date.parse(value))) throw new DomainError(400, 'INVALID_REQUEST', 'Window timestamps must be ISO timestamps with timezone.');
-  return new Date(value);
 }
 function percentile(values: number[]) {
   if (!values.length) return null;

@@ -67,7 +67,21 @@ async function fixtures() {
     outcome(rF, 'replay', 'replay', '2026-10-04T10:00:00Z'),
     outcome(rG, 'committed', 'eligible', from),
     outcome(rH, 'committed', 'eligible', to),
+    // A technical failure before any identity resolved still counts as its own unknown intent.
+    { id: randomUUID(), name: 'booking_request_outcome', occurredAt: '2026-10-03T14:00:00Z', journeyId: journey('99'),
+      context: { outcome: 'technical_error', eligibility: 'unknown', operation: 'book_activity', requestId: randomUUID() } },
   ]);
+  // Live delivery: rA's committed booking reached two foreground clients; one ACKed in 500ms
+  // and the other never did after its deadline passed.
+  const liveBooking = randomUUID(), liveEvent = randomUUID(), liveProcess = randomUUID();
+  await booking(liveBooking, actR, rA, '2026-10-02T10:00:30Z');
+  await owner.query(`INSERT INTO outbox_events (id,name,activity_id,booking_id,version,payload,created_at,origin_process_id)
+    VALUES ($1,'availability_updated',$2,$3,2,'{}',$4,$5)`, [liveEvent, actR, liveBooking, '2026-10-02T10:00:30Z', liveProcess]);
+  await owner.query(`INSERT INTO live_observations (event_id,process_id,timing,observed_at,started_clock,expected)
+    VALUES ($1,$2,'commit_observed','2026-10-02T10:00:30Z',0,2)`, [liveEvent, liveProcess]);
+  await owner.query(`INSERT INTO live_deliveries (event_id,process_id,connection_id,client_id,deadline,ack_at,sent_version,delay_ms)
+    VALUES ($1,$2,$3,$4,'2026-10-02T10:00:32Z','2026-10-02T10:00:30.5Z',2,500),
+           ($1,$2,$5,$6,'2026-10-02T10:00:32Z',NULL,2,NULL)`, [liveEvent, liveProcess, randomUUID(), randomUUID(), randomUUID(), randomUUID()]);
   // Integrity fixture: an owner write leaves two booking rows on a one-seat activity with a
   // zero counter. Its users book before the window, so windowed metrics never see the damage.
   const act9 = '22222222-0000-4000-8000-000000000090';
@@ -208,6 +222,8 @@ async function productFixtures() {
   for (const [suffix, target] of [['41', act5], ['42', act5], ['43', act5], ['44', act6], ['45', act7], ['46', act7]] as const) {
     await booking(randomUUID(), target, user(suffix), '2026-10-02T10:00:00Z');
   }
+  await organicUser(user('47'), '2026-09-25T09:00:00Z', 'Holdout late participant');
+  await booking(randomUUID(), act8, user('47'), '2026-10-09T10:00:00Z');
   // Fixture bookings bypass the counter-updating transaction, so align stored counts with
   // rows everywhere except the deliberate act9 violation.
   await owner.query(`UPDATE activities a SET confirmed_count = (SELECT count(*) FROM bookings b WHERE b.activity_id=a.id)
@@ -330,22 +346,40 @@ test('summary and product windows are validated like live metrics', async () => 
 
 test('reliability classifies distinct logical intents and keeps unknown failures visible', async () => {
   // rA (eventual commit after an eligible failure), rF (replay of a committed result) and
-  // rG (commit exactly at window start) succeed: S=3. rB fails eligible, rC fails unknown.
-  // rD sold out and rE invalid are excluded from reliability; rH's commit sits at the
-  // exclusive window end. rA's two attempts stay visible in raw counts.
+  // rG (commit exactly at window start) succeed: S=3. rB fails eligible; rC and a request
+  // whose identity never resolved fail unknown (U=2). rD sold out and rE invalid are excluded
+  // from reliability; rH's commit sits at the exclusive window end. rA's retry stays visible.
   const { status, data } = await summary();
   assert.equal(status, 200);
-  assert.deepEqual(data.bookings.rawOutcomes, { committed: 2, replay: 1, soldOut: 1, invalid: 1, technicalError: 3, total: 8 });
+  assert.deepEqual(data.bookings.rawOutcomes, { committed: 2, replay: 1, soldOut: 1, invalid: 1, technicalError: 4, total: 9 });
   assert.equal(data.bookings.attempts, 2);
-  assert.equal(data.bookings.distinctIntents, 7);
+  assert.equal(data.bookings.distinctIntents, 8);
+  assert.equal(data.bookings.retriedIntents, 1);
+  assert.ok(Math.abs(data.bookings.technicalErrorRate - 4 / 9) < 1e-9);
   const reliability = data.bookings.reliability;
   assert.equal(reliability.succeeded, 3);
   assert.equal(reliability.eligibleFailures, 1);
-  assert.equal(reliability.unknownFailures, 1);
+  assert.equal(reliability.unknownFailures, 2);
   assert.equal(reliability.eligibleRate, 0.75);
-  assert.equal(reliability.unknownInclusiveRate, 0.6);
+  assert.equal(reliability.unknownInclusiveRate, 0.5);
   assert.equal(reliability.resolvedIntents, 4);
   assert.equal(reliability.status, 'insufficient_sample');
+});
+
+test('the summary repeats live delivery coverage and misses with the live p95 definition', async () => {
+  const { data } = await summary();
+  assert.equal(data.live.status, 'reported');
+  const group = data.live.groups.find((row: { timing: string }) => row.timing === 'commit_observed');
+  assert.ok(group, JSON.stringify(data.live));
+  assert.equal(group.expected, 2);
+  assert.equal(group.acknowledged, 1);
+  assert.equal(group.misses, 1);
+  assert.equal(group.pending, 0);
+  assert.equal(group.ackOnlyPerBookingP95Ms, 500);
+  const live = await (await fetch(`${base}${data.live.endpoint}`)).json();
+  const liveGroup = live.data.groups.find((row: { timing: string }) => row.timing === 'commit_observed');
+  assert.equal(liveGroup.ackOnlyPerBookingP95Ms, group.ackOnlyPerBookingP95Ms);
+  assert.equal(liveGroup.deliveryMisses, group.misses);
 });
 
 test('synthetic and test actors never contaminate product metrics by default', async () => {
@@ -354,6 +388,7 @@ test('synthetic and test actors never contaminate product metrics by default', a
   assert.equal(data.bookings.attempts, 0);
   assert.equal(data.bookings.reliability.status, 'no_data');
   assert.equal(data.bookings.reliability.eligibleRate, null);
+  assert.equal(data.live.status, 'no_data');
 });
 
 test('oversold activities and counter mismatches are reported as integrity violations', async () => {
@@ -372,17 +407,22 @@ test('oversold activities and counter mismatches are reported as integrity viola
 });
 
 test('booker-to-inviter counts each first window booking with a 24h invite and matures windows', async () => {
-  // 19 users' first in-window bookings are mature; booker1 (23h) and booker5 (vouch, 10h)
-  // invited, while booker2 (25h), booker6 (wrong activity) and everyone else did not.
-  // booker3 booked too recently to judge. host1's own invite is the separate host segment.
+  // 20 users' first in-window bookings are mature (12 organic, 8 invited generation-1
+  // guests); booker1 (23h) and booker5 (vouch, 10h) invited, while booker2 (25h), booker6
+  // (wrong activity) and everyone else did not. booker3 booked too recently to judge.
+  // host1's own invite is the separate host segment.
   const { status, data } = await product();
   assert.equal(status, 200);
   const bookers = data.bookersInvite;
   assert.equal(bookers.definition, "each user's first confirmed booking in the window; an invite for that activity within 24h counts as invited");
-  assert.equal(bookers.mature.qualifyingBookers, 19);
+  assert.equal(bookers.mature.qualifyingBookers, 20);
   assert.equal(bookers.mature.invitedWithin24h, 2);
-  assert.ok(Math.abs(bookers.mature.rate - 2 / 19) < 1e-9);
-  assert.ok(bookers.mature.wilson95[0] < 2 / 19 && bookers.mature.wilson95[1] > 2 / 19);
+  assert.ok(Math.abs(bookers.mature.rate - 0.1) < 1e-9);
+  assert.ok(bookers.mature.wilson95[0] < 0.1 && bookers.mature.wilson95[1] > 0.1);
+  assert.deepEqual(bookers.mature.bySignupGeneration, {
+    0: { qualifyingBookers: 12, invitedWithin24h: 2 },
+    1: { qualifyingBookers: 8, invitedWithin24h: 0 },
+  });
   assert.equal(bookers.notYetMature.qualifyingBookers, 1);
   assert.equal(bookers.notYetMature.invitedWithin24h, 1);
   assert.deepEqual(bookers.mature.invitedByRail, { vouch: 1, public: 1 });
@@ -393,14 +433,15 @@ test('booker-to-inviter counts each first window booking with a 24h invite and m
 });
 
 test('open-to-claim deduplicates journeys, honours 24h and start deadlines, and separates recovery', async () => {
-  // Nine mature journeys opened (J1's repeated open counts once): J1, J2, J7, J9 convert;
-  // J5 converts after seeing a full preview (headline only); J3, J6 (a returning booker's
-  // recovery reopen), J10 (claim after activity start) and J11 do not. J4 is not yet mature.
+  // Eight mature acquisition journeys opened (J1's repeated open counts once): J1, J2, J7,
+  // J9 convert; J5 converts after seeing a full preview (headline only); J3, J10 (claim after
+  // activity start) and J11 do not. J6 is a returning booker's recovery reopen, reported
+  // separately and kept out of the headline. J4 is not yet mature.
   const { data } = await product();
   const opens = data.openToClaim;
-  assert.equal(opens.headline.openedJourneys, 9);
+  assert.equal(opens.headline.openedJourneys, 8);
   assert.equal(opens.headline.convertedJourneys, 5);
-  assert.ok(Math.abs(opens.headline.rate - 5 / 9) < 1e-9);
+  assert.ok(Math.abs(opens.headline.rate - 5 / 8) < 1e-9);
   assert.equal(opens.eligible.eligibleOpens, 7);
   assert.equal(opens.eligible.converted, 4);
   assert.ok(Math.abs(opens.eligible.rate - 4 / 7) < 1e-9);
@@ -408,7 +449,7 @@ test('open-to-claim deduplicates journeys, honours 24h and start deadlines, and 
   assert.equal(opens.notYetMature.openedJourneys, 1);
   assert.equal(opens.notYetMature.convertedJourneys, 0);
   assert.deepEqual(opens.reasons.byDisplayedState, {
-    valid: { opened: 8, converted: 4 },
+    valid: { opened: 7, converted: 4 },
     full: { opened: 1, converted: 1 },
   });
   assert.equal(opens.reasons.recoveryOpens, 1);
@@ -418,6 +459,7 @@ test('open-to-claim deduplicates journeys, honours 24h and start deadlines, and 
   assert.deepEqual(opens.byPlatform.web, { opened: 4, converted: 2 });
   assert.deepEqual(opens.byViewer.new, { opened: 6, converted: 4 });
   assert.deepEqual(opens.byViewer.returning, { opened: 1, converted: 0 });
+  assert.deepEqual(opens.byInviterGeneration, { 0: { opened: 7, converted: 4 } });
   assert.equal(opens.target, 0.25);
   assert.equal(opens.trigger.matureJourneys, 200);
   assert.equal(opens.status, 'insufficient_sample');
@@ -426,29 +468,36 @@ test('open-to-claim deduplicates journeys, honours 24h and start deadlines, and 
 test('k-factor freezes a host/booker cohort, splits rails, and keeps descendants by generation', async () => {
   // Cohort at window start: host1, booker0, the two pre-window integrity bookers and booker5,
   // whose earlier act0 booking predates the window (5). host1 directly acquires kGuestV + oG7
-  // (vouch) and kGuestP + five open-journey guests (public); kGuestX's inviter booked only
+  // (vouch) and kGuestP + five open-journey guests (public). Activation needs a claim:
+  // kGuestV only booked directly and kGuestP never booked. kGuestX's inviter booked only
   // inside the window and kDeep is generation 2, so both stay out of direct K but appear in
   // the generation breakdown.
   const { data } = await product();
   const k = data.kFactor;
   assert.equal(Date.parse(k.cohort.asOf), Date.parse(from));
+  assert.equal(k.window.days, 7);
   assert.equal(k.cohort.size, 5);
   assert.equal(k.byRail.vouch.acquired, 2);
-  assert.equal(k.byRail.vouch.activated, 2);
+  assert.equal(k.byRail.vouch.activated, 1);
   assert.ok(Math.abs(k.byRail.vouch.k - 0.4) < 1e-9);
-  assert.ok(Math.abs(k.byRail.vouch.activatedK - 0.4) < 1e-9);
+  assert.ok(Math.abs(k.byRail.vouch.activatedK - 0.2) < 1e-9);
   assert.equal(k.byRail.public.acquired, 6);
   assert.equal(k.byRail.public.activated, 5);
   assert.ok(Math.abs(k.byRail.public.k - 1.2) < 1e-9);
   assert.ok(Math.abs(k.byRail.public.activatedK - 1.0) < 1e-9);
   assert.deepEqual(k.newUsersByGeneration, [{ generation: 1, users: 9 }, { generation: 2, users: 1 }]);
   assert.equal(k.target, null);
+  assert.equal(k.status, 'observed');
+  const short = await product('?from=2026-10-01T00:00:00Z&to=2026-10-04T00:00:00Z&includeTest=true');
+  assert.equal(short.data.kFactor.window.days, 3);
+  assert.equal(short.data.kFactor.status, 'partial_window');
 });
 
 test('holdout compares every assigned activity on participants and provisional formed plans', async () => {
   // The four metrics-holdout activities carry no exposure or invitation events at all:
   // the denominator is assignment, not usage. Treatment holds 3+1 participants (one formed
-  // plan), control 2+0 (one formed plan); the participant difference carries a wide CI.
+  // plan), control 2+0 (one formed plan); a control booking after the window closes does not
+  // count. The participant difference carries a wide CI.
   const { data } = await product();
   const block = data.holdout.byVersion.find((version: { version: string }) => version.version === 'metrics-holdout');
   assert.ok(block, JSON.stringify(data.holdout));

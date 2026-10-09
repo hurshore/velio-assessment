@@ -58,7 +58,7 @@ without `NOT VALID`/`CONCURRENTLY`. That is acceptable at demo scale; a populate
 rollout would need staged validation, which is a follow-up.
 
 `012` adds the `metric_invite_open_units` view: one deduplicated `(invite, guest journey)`
-first open per unit with its rail, platform, displayed state, recovery flag and the
+first open per unit with its rail, inviter generation, platform, displayed state, recovery flag and the
 earlier-of-24h/activity-start claim deadline, plus whether an attributed `spot_claimed`
 landed inside it. Runtime receives SELECT on the view only; it changes no historical data.
 The metrics endpoints (`/api/metrics/summary`, `/api/metrics/product`) read it together

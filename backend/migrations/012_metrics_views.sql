@@ -18,7 +18,7 @@ WITH first_opens AS (
   FROM analytics_events WHERE name='spot_claimed' GROUP BY invite_id, journey_id
 )
 SELECT f.invite_id, f.journey_id, f.opened_at, f.platform, f.actor_present, f.displayed_state,
-  f.recovery, f.synthetic, f.test, i.rail, a.starts_at,
+  f.recovery, f.synthetic, f.test, i.rail, i.inviter_generation, a.starts_at,
   least(f.opened_at + interval '24 hours', a.starts_at) AS claim_deadline,
   c.claimed_at,
   (c.claimed_at IS NOT NULL AND c.claimed_at >= f.opened_at
