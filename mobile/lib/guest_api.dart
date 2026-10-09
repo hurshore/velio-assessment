@@ -65,13 +65,16 @@ class InvitePreview {
       activity = object(data['activity']),
       inviter = object(data['inviter']) {
     if (!isCode(code) ||
-        data['rail'] != 'public' ||
-        data['trust'] != 'public' ||
+        !['public', 'vouch'].contains(data['rail']) ||
+        data['trust'] != data['rail'] ||
         !['valid', 'full', 'expired', 'started', 'cancelled'].contains(state)) {
       throw const FormatException('Unsupported invitation');
     }
     timestamp(data, 'createdAt');
     timestamp(data, 'expiresAt');
+    rail = text(data, 'rail');
+    createdAt = text(data, 'createdAt');
+    expiresAt = text(data, 'expiresAt');
     identifier(activity, 'id');
     identifier(activity, 'planId');
     for (final key in [
@@ -102,10 +105,44 @@ class InvitePreview {
     }
   }
   final String code, state;
+  late final String rail, createdAt, expiresAt;
   final Map<String, dynamic> activity, inviter;
   String get activityId => activity['id'] as String;
   String get planId => activity['planId'] as String;
   Availability get availability => Availability(activity);
+  Map<String, dynamic> toJson() => {
+    'code': code,
+    'state': state,
+    'rail': rail,
+    'trust': rail,
+    'createdAt': createdAt,
+    'expiresAt': expiresAt,
+    'inviter': {'displayName': inviter['displayName'], 'role': inviter['role']},
+    'activity': {
+      for (final key in [
+        'id',
+        'planId',
+        'title',
+        'description',
+        'meetingLocation',
+        'startsAt',
+        'timezone',
+        'status',
+        'currency',
+        'priceMinor',
+        'capacity',
+        'confirmedCount',
+        'remainingSeats',
+        'version',
+      ])
+        key: activity[key],
+    },
+  };
+  InvitePreview withActivity(Map<String, dynamic> detail) => InvitePreview({
+    ...toJson(),
+    'state': text(detail, 'inviteState'),
+    'activity': detail,
+  });
 }
 
 class DemoIdentity {
@@ -233,8 +270,9 @@ class GuestApi {
   Future<DemoIdentity> createIdentity(
     String name,
     String code,
-    String journey,
-  ) async => DemoIdentity(
+    String journey, {
+    String? contact,
+  }) async => DemoIdentity(
     object(
       await request(
         '/identities',
@@ -244,10 +282,23 @@ class GuestApi {
           'inviteCode': code,
           'journeyId': journey,
           'platform': 'mobile',
+          if (contact != null && contact.trim().isNotEmpty)
+            'contact': contact.trim(),
         },
       ),
     ),
   );
+  Future<bool> recipientMatches(InvitePreview preview, String actor) async {
+    if (preview.rail == 'public') return true;
+    final data = object(
+      await request('/invites/${preview.code}/recipient-check', actorId: actor),
+    );
+    if (data['matches'] is! bool) {
+      throw const FormatException('Invalid recipient check');
+    }
+    return data['matches'] as bool;
+  }
+
   Future<BookingState> ownBooking(InvitePreview preview, String actor) async =>
       BookingState(
         object(

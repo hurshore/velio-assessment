@@ -42,6 +42,15 @@ bool _absoluteTimestamp(Object? value) {
   return day.year == parts[0] && day.month == parts[1] && day.day == parts[2];
 }
 
+class PendingClaim {
+  PendingClaim._(String saved)
+    : actorId = saved.split(':')[0],
+      code = saved.split(':')[1];
+  final String actorId, code;
+  bool matches(String? actor, String? invitationCode) =>
+      actorId == actor && code == invitationCode;
+}
+
 class GuestSession {
   GuestSession._(this.file, this._data);
   final File file;
@@ -62,6 +71,16 @@ class GuestSession {
   String? get journeyId => _data['journeyId'] as String?;
   String get code => _data['code'] as String? ?? '';
   String get displayName => _data['displayName'] as String? ?? '';
+  String get contact => _data['contact'] as String? ?? '';
+  Map<String, dynamic>? cached(String code) {
+    final value = (_data['cache'] as Map?)?[normalizeCode(code)];
+    return value == null ? null : Map<String, dynamic>.from(value as Map);
+  }
+
+  List<PendingClaim> get pendingClaims =>
+      List<String>.from(_data['pendingClaims'] as List? ?? [])
+          .map(PendingClaim._)
+          .toList();
   String? get actorId => _data['actorId'] as String?;
   List<Map<String, dynamic>> get pendingEvents =>
       (_data['events'] as List? ?? [])
@@ -94,6 +113,30 @@ class GuestSession {
       invalid('displayName');
     }
     final keys = data['claimKeys'] ?? <String, dynamic>{};
+    if (data.containsKey('contact') &&
+        (data['contact'] is! String ||
+            (data['contact'] as String).length > 254)) {
+      invalid('contact');
+    }
+    if (data.containsKey('cache')) {
+      if (data['cache'] is! Map<String, dynamic>) invalid('cache');
+      for (final entry in (data['cache'] as Map<String, dynamic>).entries) {
+        if (!isCode(entry.key) || entry.value is! Map<String, dynamic>) {
+          invalid('cache entry');
+        }
+        final value = entry.value as Map<String, dynamic>;
+        final participantVersion = value['participantVersion'];
+        if (participantVersion != null &&
+            (participantVersion is! int || participantVersion < 0)) {
+          invalid('participant version');
+        }
+        if (value['preview'] is! Map<String, dynamic> ||
+            !_absoluteTimestamp(value['savedAt']) ||
+            value['participants'] is! List) {
+          invalid('cached details');
+        }
+      }
+    }
     if (keys is! Map<String, dynamic>) invalid('claimKeys');
     if (data.containsKey('claimKeys') && data['claimKeys'] == null) {
       invalid('claimKeys');
@@ -184,9 +227,11 @@ class GuestSession {
       final draft = Map<String, dynamic>.from(_data);
       final result = change(draft);
       _validate(draft);
+      final encoded = jsonEncode(draft);
+      if (encoded == jsonEncode(_data)) return result;
       await file.parent.create(recursive: true);
       final temporary = File('${file.path}.tmp');
-      await temporary.writeAsString(jsonEncode(draft), flush: true);
+      await temporary.writeAsString(encoded, flush: true);
       await temporary.rename(file.path);
       _data
         ..clear()
@@ -211,6 +256,34 @@ class GuestSession {
 
   Future<void> saveName(String value) =>
       _update<void>((draft) => draft['displayName'] = value);
+  Future<void> saveContact(String value) =>
+      _update<void>((draft) => draft['contact'] = value);
+  Future<void> saveDetails(
+    String code,
+    Map<String, dynamic> preview,
+    List<Map<String, dynamic>> participants, {
+    Map<String, dynamic>? booking,
+    int participantVersion = 0,
+  }) => _update<void>((draft) {
+    final cache = Map<String, dynamic>.from(draft['cache'] as Map? ?? {});
+    final previous = cache[normalizeCode(code)] as Map?;
+    final details = {
+      'preview': preview,
+      'participants': participants,
+      'participantVersion': participantVersion,
+      if (booking != null || previous?['booking'] != null)
+        'booking': booking ?? previous!['booking'],
+    };
+    final existing = previous == null
+        ? null
+        : (Map<String, dynamic>.from(previous)..remove('savedAt'));
+    if (existing != null && jsonEncode(existing) == jsonEncode(details)) return;
+    cache[normalizeCode(code)] = {
+      ...details,
+      'savedAt': utcTimestamp(DateTime.now()),
+    };
+    draft['cache'] = cache;
+  });
   Future<void> selectActor(String id) =>
       _update<void>((draft) => draft['actorId'] = id);
 

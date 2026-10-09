@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
+import { inviteStateSql } from './invite-state.js';
 import { assignmentJson, type InviteConfig, type InvitePolicy } from './experiments.js';
 import { DomainError, exact, object, rows, text, uuid, type Database } from './domain.js';
 
@@ -24,11 +25,13 @@ export function absoluteTime(value: unknown): string {
 const columns = `a.id, a.host_id AS "hostId", a.title, a.description, a.meeting_location AS "meetingLocation",
   a.starts_at AS "startsAt", a.timezone, a.status, a.capacity, a.confirmed_count AS "confirmedCount",
   a.capacity-a.confirmed_count AS "remainingSeats", a.price_minor AS "priceMinor", a.currency, a.version, p.id AS "planId", ${assignmentJson('e')} AS assignment`;
-export async function activityDetail(db: Database, id: string) {
-  const [activity] = await rows(db, `SELECT ${columns},
+export async function activityDetail(db: Database, id: string, inviteId?: string) {
+  // Eligibility and membership share the same database statement/observation.
+  const inviteColumn = inviteId ? `, (SELECT ${inviteStateSql('clock_timestamp()')} FROM invites i WHERE i.id=$2 AND i.activity_id=a.id) AS "inviteState"` : '';
+  const [activity] = await rows(db, `SELECT ${columns}${inviteColumn},
     COALESCE((SELECT jsonb_agg(jsonb_build_object('id', u.id, 'displayName', u.display_name) ORDER BY b.confirmed_at, b.id)
       FROM bookings b JOIN users u ON u.id=b.user_id WHERE b.activity_id=a.id), '[]'::jsonb) AS participants
-    FROM activities a JOIN plans p ON p.activity_id=a.id LEFT JOIN experiment_assignments e ON e.activity_id=a.id WHERE a.id=$1`, [id]);
+    FROM activities a JOIN plans p ON p.activity_id=a.id LEFT JOIN experiment_assignments e ON e.activity_id=a.id WHERE a.id=$1`, inviteId ? [id, inviteId] : [id]);
   if (!activity) throw new DomainError(404, 'NOT_FOUND', 'Activity was not found.');
   return activity;
 }

@@ -11,6 +11,12 @@ import 'package:velio_mobile/guest_screen.dart';
 import 'package:velio_mobile/guest_session.dart';
 import 'package:velio_mobile/guest_api.dart';
 
+import 'live_fixture.dart';
+
+Future<FixtureSocket> fixtureConnect(Uri uri) async => FixtureSocket(
+  withParticipants(Map<String, dynamic>.from(preview()['activity'] as Map)),
+);
+
 const code = 'ABCD2345EFGH';
 const activityId = '11111111-1111-4111-8111-111111111111';
 const planId = '22222222-2222-4222-8222-222222222222';
@@ -110,6 +116,7 @@ void main() {
         await tester.pumpWidget(
           MaterialApp(
             home: GuestScreen(
+              liveConnect: fixtureConnect,
               session: session,
               api: api,
               links: const Stream<Uri>.empty(),
@@ -182,6 +189,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: GuestScreen(
+            liveConnect: fixtureConnect,
             session: session,
             api: api,
             links: const Stream<Uri>.empty(),
@@ -238,7 +246,12 @@ void main() {
         await session.enter(code);
         await tester.pumpWidget(
           MaterialApp(
-            home: GuestScreen(session: session, api: api, links: links.stream),
+            home: GuestScreen(
+              liveConnect: fixtureConnect,
+              session: session,
+              api: api,
+              links: links.stream,
+            ),
           ),
         );
         await Future<void>.delayed(const Duration(milliseconds: 100));
@@ -296,6 +309,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: GuestScreen(
+            liveConnect: fixtureConnect,
             session: session,
             api: GuestApi(client: client),
             links: const Stream<Uri>.empty(),
@@ -414,6 +428,7 @@ void main() {
         await tester.pumpWidget(
           MaterialApp(
             home: GuestScreen(
+              liveConnect: fixtureConnect,
               session: session,
               api: GuestApi(client: client),
               links: const Stream<Uri>.empty(),
@@ -424,12 +439,15 @@ void main() {
       });
       await settle(tester);
       await tester.runAsync(() async {
+        await tester.ensureVisible(find.text('Choose demo identity'));
         await tester.tap(find.text('Choose demo identity'));
       });
       await settle(tester);
-      await tester.enterText(
-        find.widgetWithText(TextField, 'Your display name'),
-        'Tunde',
+      await tester.runAsync(
+        () => tester.enterText(
+          find.widgetWithText(TextField, 'Your display name'),
+          'Tunde',
+        ),
       );
       await tester.ensureVisible(find.text('Create demo identity'));
       await tester.runAsync(() async {
@@ -469,6 +487,7 @@ void main() {
         await tester.pumpWidget(
           MaterialApp(
             home: GuestScreen(
+              liveConnect: fixtureConnect,
               session: restored!,
               api: GuestApi(client: client),
               links: const Stream<Uri>.empty(),
@@ -520,6 +539,9 @@ void main() {
         await tester.pumpWidget(
           MaterialApp(
             home: GuestScreen(
+              liveConnect: (_) async => throw const SocketException(
+                'No live transport in unavailable-state fixture',
+              ),
               session: session,
               api: GuestApi(client: client),
               links: const Stream<Uri>.empty(),
@@ -611,6 +633,7 @@ void main() {
           await tester.pumpWidget(
             MaterialApp(
               home: GuestScreen(
+                liveConnect: fixtureConnect,
                 session: current,
                 api: GuestApi(client: client),
                 links: const Stream<Uri>.empty(),
@@ -687,6 +710,7 @@ void main() {
         await tester.pumpWidget(
           MaterialApp(
             home: GuestScreen(
+              liveConnect: fixtureConnect,
               session: session,
               api: GuestApi(client: client),
               links: links.stream,
@@ -772,6 +796,7 @@ void main() {
         await tester.pumpWidget(
           MaterialApp(
             home: GuestScreen(
+              liveConnect: fixtureConnect,
               session: session,
               api: GuestApi(client: client),
               links: const Stream<Uri>.empty(),
@@ -825,6 +850,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: GuestScreen(
+            liveConnect: fixtureConnect,
             session: session,
             api: GuestApi(client: client),
             links: const Stream<Uri>.empty(),
