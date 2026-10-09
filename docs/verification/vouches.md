@@ -65,8 +65,8 @@ Scope: PLANS.md §§1.2, 2.2, 2.4, 2.6, 2.9, 3.4 and 4.1. Node 24.21.0 and Postg
 - `npm test`: passed with none skipped:
   - 12 root tests
   - 118 backend tests, 12 of them vouch scenarios
-  - 103 web tests
-- The public-invite, vouch and booking suites were run again together (55 tests) and passed.
+  - 104 web tests
+- The public-invite, vouch and booking suites were run again together (55 tests, `--test-concurrency=1` as `npm test` runs them; their combined pools exceed the default `max_connections` when run concurrently) and passed.
 - `npm run build`: passed.
 - `npm run mobile:check`: 13 Flutter tests passed. No Flutter files changed.
 - `npm run migrate` applied `010` and then `011` to the existing local dev database.
