@@ -110,7 +110,19 @@ void main() {
     'native link, lost committed response, last-seat race, code entry and recovery',
     (tester) async {
       final nativeLinks = AppLinks();
-      final setup = GuestApi();
+      final apis = <GuestApi>[];
+      GuestApi ownedApi({http.Client? client}) {
+        final api = GuestApi(client: client);
+        apis.add(api);
+        return api;
+      }
+
+      addTearDown(() {
+        for (final api in apis) {
+          api.dispose();
+        }
+      });
+      final setup = ownedApi();
       final journey = newId();
       final host = object(
         await setup.request(
@@ -146,7 +158,7 @@ void main() {
         MaterialApp(
           home: GuestScreen(
             session: session,
-            api: GuestApi(client: transport),
+            api: ownedApi(client: transport),
             links: nativeLinks.uriLinkStream,
           ),
         ),
@@ -198,7 +210,7 @@ void main() {
         MaterialApp(
           home: GuestScreen(
             session: restored,
-            api: GuestApi(),
+            api: ownedApi(),
             links: nativeLinks.uriLinkStream,
           ),
         ),
@@ -257,7 +269,7 @@ void main() {
         MaterialApp(
           home: GuestScreen(
             session: fallback,
-            api: GuestApi(client: competitor),
+            api: ownedApi(client: competitor),
             links: const Stream<Uri>.empty(),
           ),
         ),

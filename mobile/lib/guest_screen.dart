@@ -8,6 +8,7 @@ import 'package:timezone/timezone.dart' as tz;
 
 import 'guest_api.dart';
 import 'guest_session.dart';
+import 'readiness.dart';
 
 const unavailableMessages = {
   'full': 'The last spot has been taken. This activity is full.',
@@ -16,11 +17,12 @@ const unavailableMessages = {
   'cancelled': 'This activity was cancelled.',
 };
 String failureMessage(Object error) {
+  if (error is FormatException) return unexpectedResponseMessage;
   if (error is FileSystemException) {
     return 'Could not save your guest session. Check device storage and retry; your entered code is kept here.';
   }
   if (error is! ApiFailure) {
-    return 'Could not connect. Check your connection and retry.';
+    return connectionErrorMessage;
   }
   final message = switch (error.code) {
     'INVALID_INVITE' =>
@@ -101,9 +103,28 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _openLink(Uri uri) async {
-    if (uri.scheme != 'velio' ||
-        uri.host != 'invite' ||
-        uri.pathSegments.length != 1) {
+    bool supported;
+    try {
+      final journeys = uri.queryParametersAll['journey'];
+      supported =
+          uri.scheme == 'velio' &&
+          uri.host == 'invite' &&
+          uri.userInfo.isEmpty &&
+          !uri.hasPort &&
+          !uri.hasFragment &&
+          uri.pathSegments.length == 1 &&
+          isCode(uri.pathSegments.single) &&
+          uri.queryParameters.keys.every((key) => key == 'journey') &&
+          (journeys == null || (journeys.length == 1 && isId(journeys.single)));
+    } on FormatException {
+      supported = false;
+    }
+    if (!supported) {
+      if (mounted) {
+        setState(
+          () => _message = 'Cannot open this invitation link. Use velio://invite/<12-character code> or enter the code below.',
+        );
+      }
       return;
     }
     if (_busy) {
@@ -124,6 +145,12 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
 
   Future<void> _load({String? linkedJourney}) async {
     if (_busy) return;
+    if (!isCode(_code.text)) {
+      setState(
+        () => _message = 'Enter a valid 12-character invitation code. Spaces and hyphens are allowed.',
+      );
+      return;
+    }
     final version = ++_version;
     final sameInvitation = _preview?.code == normalizeCode(_code.text);
     setState(() {
@@ -141,7 +168,6 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
     });
     try {
       await session.enter(_code.text, linkedJourney: linkedJourney);
-      if (!isCode(_code.text)) throw ApiFailure('INVALID_INVITE', false, '');
       final preview = await api.preview(normalizeCode(_code.text));
       if (!mounted || version != _version) return;
       setState(() {
@@ -289,6 +315,12 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _lookup(InvitePreview preview, String actor) async {
+    if (mounted) {
+      setState(() {
+        _checkedBooking = false;
+        _uncertain = session.hasPendingClaim(actor, preview.code);
+      });
+    }
     final result = await api.ownBooking(preview, actor);
     if (!mounted) return;
     _checkedBooking = true;
@@ -337,6 +369,7 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
     if (_busy || _preview == null || _identity == null) return;
     final preview = _preview!;
     final actor = _identity!.id;
+    var submitted = false;
     setState(() {
       _busy = true;
       _message = 'Checking your confirmation…';
@@ -352,40 +385,58 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
       final key = await session.startClaim(actor, preview.code);
       if (!mounted) return;
       setState(() => _message = 'Claiming your seat…');
+      submitted = true;
       final result = await api.claim(preview, actor, session.journeyId!, key);
       await _confirm(result, preview, actor, celebrate: !result.replayed);
     } catch (error) {
       if (!mounted) return;
-      if (error is ApiFailure &&
+      if (!submitted) {
+        setState(() {
+          _uncertain = session.hasPendingClaim(actor, preview.code);
+          _message =
+              '${failureMessage(error)}\nNo claim was submitted on this attempt.'
+              '${_uncertain ? ' Your earlier pending request is still saved; check/retry confirmation.' : ''}';
+        });
+      } else if (error is ApiFailure &&
           !error.retryable &&
           error.code != 'IDEMPOTENCY_MISMATCH') {
+        var resolved = false;
         try {
           await session.resolveClaim(actor, preview.code);
+          resolved = true;
         } catch (_) {
-          /* Retain the key when device storage is unavailable. */
+          // Keep the durable intent until a later confirmation check can resolve it.
         }
         if (!mounted) return;
         setState(() {
           _message = failureMessage(error);
-          _uncertain = false;
-          _claimBlocked = [
-            'SOLD_OUT',
-            'INVITE_EXPIRED',
-            'ACTIVITY_STARTED',
-            'ACTIVITY_UNAVAILABLE',
-          ].contains(error.code);
+          if (!resolved) {
+            _message =
+                '$_message\nCould not save recovery state; your pending request is retained.';
+          }
+          _uncertain = !resolved;
+          _claimBlocked =
+              resolved &&
+              [
+                'SOLD_OUT',
+                'INVITE_EXPIRED',
+                'ACTIVITY_STARTED',
+                'ACTIVITY_UNAVAILABLE',
+              ].contains(error.code);
         });
       } else {
         setState(() {
           _uncertain = true;
-          _message = 'Checking your confirmation. The response was uncertain; your request key is saved.';
+          _message =
+              '${failureMessage(error)}\nChecking your confirmation. The claim response was uncertain; your request key is saved.';
         });
         try {
           await _lookup(preview, actor);
         } catch (_) {
           if (mounted) {
             setState(
-              () => _message = 'Confirmation is still uncertain. Reconnect and check/retry with your saved request.',
+              () => _message =
+                  '${failureMessage(error)}\nConfirmation is still uncertain. Check/retry with your saved request.',
             );
           }
         }
@@ -402,7 +453,6 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
     _links?.cancel();
     _code.dispose();
     _name.dispose();
-    api.dispose();
     super.dispose();
   }
 
@@ -420,6 +470,7 @@ class _GuestScreenState extends State<GuestScreen> with WidgetsBindingObserver {
               children: [
                 TextField(
                   controller: _code,
+                  maxLength: 64,
                   enabled: !_busy,
                   decoration: const InputDecoration(
                     labelText: 'Invitation code',

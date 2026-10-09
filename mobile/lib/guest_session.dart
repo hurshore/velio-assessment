@@ -26,7 +26,21 @@ bool isId(String? value) =>
 String normalizeCode(String value) =>
     value.replaceAll(RegExp(r'[\s-]'), '').toUpperCase();
 bool isCode(String value) =>
+    value.length <= 64 &&
     RegExp(r'^[0-9A-HJKMNP-TV-Z]{12}$').hasMatch(normalizeCode(value));
+
+bool _absoluteTimestamp(Object? value) {
+  if (value is! String ||
+      !RegExp(
+        r'^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(\.\d{1,3})?(Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$',
+      ).hasMatch(value) ||
+      DateTime.tryParse(value) == null) {
+    return false;
+  }
+  final parts = value.substring(0, 10).split('-').map(int.parse).toList();
+  final day = DateTime.utc(parts[0], parts[1], parts[2]);
+  return day.year == parts[0] && day.month == parts[1] && day.day == parts[2];
+}
 
 class GuestSession {
   GuestSession._(this.file, this._data);
@@ -36,15 +50,12 @@ class GuestSession {
 
   static Future<GuestSession> open(File file) async {
     final data = await file.exists()
-        ? jsonDecode(await file.readAsString())
+        ? jsonDecode(utf8.decode(await file.readAsBytes()))
         : <String, dynamic>{};
     if (data is! Map<String, dynamic>) {
       throw const FormatException('Invalid guest session');
     }
-    if (data['journeyId'] != null && !isId(data['journeyId'] as String?) ||
-        data['actorId'] != null && !isId(data['actorId'] as String?)) {
-      throw const FormatException('Invalid saved identity or journey');
-    }
+    _validate(data);
     return GuestSession._(file, data);
   }
 
@@ -57,82 +68,199 @@ class GuestSession {
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
 
-  Future<void> _save() {
-    final snapshot = jsonEncode(_data);
+  static void _validate(Map<String, dynamic> data) {
+    Never invalid(String path) =>
+        throw FormatException('Invalid saved session: $path');
+    bool id(Object? value) => value is String && isId(value);
+    bool intent(Object? value) {
+      if (value is! String) return false;
+      final parts = value.split(':');
+      return parts.length == 2 &&
+          id(parts[0]) &&
+          isCode(parts[1]) &&
+          parts[1] == normalizeCode(parts[1]);
+    }
+
+    for (final field in ['journeyId', 'actorId']) {
+      if (data.containsKey(field) && !id(data[field])) invalid(field);
+    }
+    if (data.containsKey('code') &&
+        (data['code'] is! String || !isCode(data['code'] as String))) {
+      invalid('code');
+    }
+    if (data.containsKey('displayName') &&
+        (data['displayName'] is! String ||
+            (data['displayName'] as String).length > 100)) {
+      invalid('displayName');
+    }
+    final keys = data['claimKeys'] ?? <String, dynamic>{};
+    if (keys is! Map<String, dynamic>) invalid('claimKeys');
+    if (data.containsKey('claimKeys') && data['claimKeys'] == null) {
+      invalid('claimKeys');
+    }
+    for (final entry in keys.entries) {
+      if (!intent(entry.key) || !id(entry.value)) invalid('claimKeys entry');
+    }
+    for (final field in ['pendingClaims', 'celebrated', 'events']) {
+      if (data.containsKey(field) && data[field] is! List) invalid(field);
+    }
+    for (final value in data['pendingClaims'] as List? ?? []) {
+      if (!intent(value) || !keys.containsKey(value)) {
+        invalid('pendingClaims entry/key');
+      }
+    }
+    for (final value in data['celebrated'] as List? ?? []) {
+      if (!id(value)) invalid('celebrated entry');
+    }
+    for (final entry in data['events'] as List? ?? []) {
+      if (entry is! Map<String, dynamic>) invalid('events entry');
+      if (!id(entry['id']) ||
+          !id(entry['journeyId']) ||
+          entry['schemaVersion'] != 1 ||
+          entry['source'] != 'client' ||
+          entry['platform'] != 'mobile' ||
+          !_absoluteTimestamp(entry['occurredAt']) ||
+          (entry.containsKey('actorId') && !id(entry['actorId']))) {
+        invalid('events envelope');
+      }
+      final allowed = {
+        'id',
+        'name',
+        'schemaVersion',
+        'source',
+        'platform',
+        'journeyId',
+        'actorId',
+        'occurredAt',
+        'synthetic',
+        'test',
+        if (entry['name'] == 'invite_opened') ...[
+          'inviteCode',
+          'displayedState',
+        ] else ...[
+          'activityId',
+          'planId',
+        ],
+      };
+      if (entry.keys.any((key) => !allowed.contains(key))) {
+        invalid('events fields');
+      }
+      for (final flag in ['synthetic', 'test']) {
+        if (entry.containsKey(flag) && entry[flag] is! bool) {
+          invalid('events $flag');
+        }
+      }
+      if (entry['name'] == 'invite_opened') {
+        if (entry['inviteCode'] is! String ||
+            !isCode(entry['inviteCode'] as String) ||
+            ![
+              'valid',
+              'full',
+              'expired',
+              'started',
+              'cancelled',
+            ].contains(entry['displayedState'])) {
+          invalid('events invite_opened');
+        }
+      } else if (entry['name'] == 'activity_viewed') {
+        if (!id(entry['activityId']) || !id(entry['planId'])) {
+          invalid('events activity_viewed');
+        }
+      } else {
+        invalid('events name');
+      }
+    }
+    if ((data.containsKey('code') ||
+            keys.isNotEmpty ||
+            (data['events'] as List? ?? []).isNotEmpty) &&
+        !id(data['journeyId'])) {
+      invalid('journeyId required for recovery');
+    }
+  }
+
+  // Publish in-memory recovery state only after its atomic disk replacement succeeds.
+  Future<T> _update<T>(T Function(Map<String, dynamic>) change) {
     final next = _writes.catchError((Object _) {}).then((_) async {
+      final draft = Map<String, dynamic>.from(_data);
+      final result = change(draft);
+      _validate(draft);
       await file.parent.create(recursive: true);
       final temporary = File('${file.path}.tmp');
-      await temporary.writeAsString(snapshot, flush: true);
+      await temporary.writeAsString(jsonEncode(draft), flush: true);
       await temporary.rename(file.path);
+      _data
+        ..clear()
+        ..addAll(draft);
+      return result;
     });
-    _writes = next;
+    _writes = next.then<void>((_) {});
+    // The caller receives the failure; keep the serialization tail handled too.
+    _writes = _writes.catchError((Object _) {});
     return next;
   }
 
   Future<void> enter(String code, {String? linkedJourney}) async {
-    _data['journeyId'] ??= isId(linkedJourney)
-        ? linkedJourney!.toLowerCase()
-        : newId();
-    _data['code'] = code;
-    await _save();
+    if (!isCode(code)) throw const FormatException('Invalid invitation code');
+    await _update<void>((draft) {
+      draft['journeyId'] ??= isId(linkedJourney)
+          ? linkedJourney!.toLowerCase()
+          : newId();
+      draft['code'] = normalizeCode(code);
+    });
   }
 
-  Future<void> saveName(String value) async {
-    _data['displayName'] = value;
-    await _save();
-  }
+  Future<void> saveName(String value) =>
+      _update<void>((draft) => draft['displayName'] = value);
+  Future<void> selectActor(String id) =>
+      _update<void>((draft) => draft['actorId'] = id);
 
-  Future<void> selectActor(String id) async {
-    _data['actorId'] = id;
-    await _save();
-  }
-
-  Future<String> claimKey(String actor, String code) async {
-    final keys = Map<String, dynamic>.from(_data['claimKeys'] as Map? ?? {});
+  String _key(Map<String, dynamic> draft, String actor, String code) {
+    final keys = Map<String, dynamic>.from(draft['claimKeys'] as Map? ?? {});
     final intent = '$actor:${normalizeCode(code)}';
     final key = keys[intent] as String? ?? newId();
     keys[intent] = key;
-    _data['claimKeys'] = keys;
-    await _save();
+    draft['claimKeys'] = keys;
     return key;
   }
+
+  Future<String> claimKey(String actor, String code) =>
+      _update((draft) => _key(draft, actor, code));
 
   bool hasPendingClaim(String actor, String code) =>
       (_data['pendingClaims'] as List? ?? []).contains(
         '$actor:${normalizeCode(code)}',
       );
-  Future<String> startClaim(String actor, String code) async {
-    final key = await claimKey(actor, code);
-    _data['pendingClaims'] = {
-      ...(_data['pendingClaims'] as List? ?? []),
+
+  Future<String> startClaim(String actor, String code) => _update((draft) {
+    final key = _key(draft, actor, code);
+    draft['pendingClaims'] = {
+      ...(draft['pendingClaims'] as List? ?? []),
       '$actor:${normalizeCode(code)}',
     }.toList();
-    await _save();
     return key;
-  }
+  });
 
-  Future<void> resolveClaim(String actor, String code) async {
-    _data['pendingClaims'] = (_data['pendingClaims'] as List? ?? [])
-        .where((v) => v != '$actor:${normalizeCode(code)}')
-        .toList();
-    await _save();
-  }
+  Future<void> resolveClaim(String actor, String code) =>
+      _update<void>((draft) {
+        draft['pendingClaims'] = (draft['pendingClaims'] as List? ?? [])
+            .where((value) => value != '$actor:${normalizeCode(code)}')
+            .toList();
+      });
 
-  Future<bool> celebrate(String bookingId) async {
-    final celebrated = List<String>.from(_data['celebrated'] as List? ?? []);
+  Future<bool> celebrate(String bookingId) => _update((draft) {
+    final celebrated = List<String>.from(draft['celebrated'] as List? ?? []);
     if (celebrated.contains(bookingId)) return false;
-    _data['celebrated'] = [...celebrated, bookingId];
-    await _save();
+    draft['celebrated'] = [...celebrated, bookingId];
     return true;
-  }
+  });
 
-  Future<void> enqueue(Map<String, dynamic> event) async {
-    _data['events'] = [...pendingEvents, event];
-    await _save();
-  }
+  Future<void> enqueue(Map<String, dynamic> event) => _update<void>((draft) {
+    draft['events'] = [...(draft['events'] as List? ?? []), event];
+  });
 
-  Future<void> delivered(String id) async {
-    _data['events'] = pendingEvents.where((e) => e['id'] != id).toList();
-    await _save();
-  }
+  Future<void> delivered(String id) => _update<void>((draft) {
+    draft['events'] = (draft['events'] as List? ?? [])
+        .where((event) => event['id'] != id)
+        .toList();
+  });
 }

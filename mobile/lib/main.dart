@@ -4,13 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import 'readiness.dart';
+import 'api_config.dart';
+export 'api_config.dart' show apiBaseUrl;
 import 'guest_host.dart';
 import 'bounded_http.dart';
-
-const apiBaseUrl = String.fromEnvironment(
-  'API_BASE_URL',
-  defaultValue: 'http://127.0.0.1:3000',
-);
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();

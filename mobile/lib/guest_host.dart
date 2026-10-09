@@ -10,7 +10,8 @@ import 'guest_screen.dart';
 import 'guest_session.dart';
 
 class GuestHost extends StatefulWidget {
-  const GuestHost({super.key});
+  const GuestHost({super.key, this.sessionFile});
+  final File? sessionFile;
   @override
   State<GuestHost> createState() => _GuestHostState();
 }
@@ -35,7 +36,11 @@ class _GuestHostState extends State<GuestHost> {
           _links.add(uri);
         }
       },
-      onError: (Object _) {
+      onError: (Object error) {
+        if (_linkReady) {
+          _links.addError(error);
+          return;
+        }
         if (mounted) {
           setState(
             () => _error =
@@ -49,10 +54,12 @@ class _GuestHostState extends State<GuestHost> {
 
   Future<void> _restore() async {
     try {
-      final directory = await getApplicationSupportDirectory();
-      final session = await GuestSession.open(
-        File('${directory.path}/guest-v1.json'),
-      );
+      final file =
+          widget.sessionFile ??
+          File(
+            '${(await getApplicationSupportDirectory()).path}/guest-v1.json',
+          );
+      final session = await GuestSession.open(file);
       if (!mounted) return;
       setState(() {
         _session = session;
@@ -66,10 +73,21 @@ class _GuestHostState extends State<GuestHost> {
           _pendingLink = null;
         }
       });
-    } catch (_) {
+    } catch (error, stack) {
+      assert(() {
+        final detail = error is FormatException
+            ? error.message
+            : error.toString();
+        debugPrint(
+          'Guest session restore failed (${error.runtimeType}): $detail\n$stack',
+        );
+        return true;
+      }());
       if (mounted) {
         setState(
-          () => _error = 'Could not restore your saved guest session. Retry to preserve identity and pending requests.',
+          () => _error = error is FormatException
+              ? 'Your saved guest session contains invalid data. The original file and recovery information are preserved. Repair the saved data before retrying; it has not been reset.'
+              : 'Could not read your saved guest session. Check device storage and retry. Your saved identity and pending requests are preserved.',
         );
       }
     }
@@ -79,6 +97,7 @@ class _GuestHostState extends State<GuestHost> {
   void dispose() {
     _nativeLinks?.cancel();
     _links.close();
+    _api?.dispose();
     super.dispose();
   }
 

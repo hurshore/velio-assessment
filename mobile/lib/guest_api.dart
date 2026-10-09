@@ -6,11 +6,15 @@ import 'package:timezone/timezone.dart' as tz;
 
 import 'guest_session.dart';
 import 'bounded_http.dart';
+import 'api_config.dart';
 
-const defaultApiBaseUrl = String.fromEnvironment(
-  'API_BASE_URL',
-  defaultValue: 'http://127.0.0.1:3000',
-);
+bool _timezonesInitialized = false;
+void _initializeTimezones() {
+  if (_timezonesInitialized) return;
+  tzdata.initializeTimeZones();
+  _timezonesInitialized = true;
+}
+
 Map<String, dynamic> object(Object? value) {
   if (value is! Map<String, dynamic>) {
     throw const FormatException('Unexpected API response');
@@ -90,8 +94,12 @@ class InvitePreview {
     if (!['host', 'booker'].contains(inviter['role'])) {
       throw const FormatException('Invalid inviter');
     }
-    tzdata.initializeTimeZones();
-    tz.getLocation(text(activity, 'timezone'));
+    _initializeTimezones();
+    try {
+      tz.getLocation(text(activity, 'timezone'));
+    } on tz.LocationNotFoundException {
+      throw const FormatException('Invalid activity timezone');
+    }
   }
   final String code, state;
   final Map<String, dynamic> activity, inviter;
@@ -148,7 +156,7 @@ class ApiFailure implements Exception {
 class GuestApi {
   GuestApi({
     http.Client? client,
-    this.baseUrl = defaultApiBaseUrl,
+    this.baseUrl = apiBaseUrl,
     this.timeout = const Duration(seconds: 8),
   }) : _transport = BoundedHttp(client: client, timeout: timeout);
   final BoundedHttp _transport;

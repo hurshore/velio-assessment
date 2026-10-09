@@ -64,6 +64,222 @@ void main() {
   tearDown(() async => directory.delete(recursive: true));
 
   testWidgets(
+    'lookup timeout before submission never reports an uncertain write',
+    (tester) async {
+      var timeoutLookup = false;
+      final claims = <http.Request>[];
+      final client = MockClient((request) async {
+        if (request.url.path.endsWith('/claims')) claims.add(request);
+        if (request.url.path.endsWith('/booking')) {
+          if (timeoutLookup) throw TimeoutException('Lookup timed out');
+          return envelope({
+            'booking': null,
+            'availability': {
+              'activityId': activityId,
+              'planId': planId,
+              'capacity': 2,
+              'confirmedCount': 1,
+              'remainingSeats': 1,
+              'version': 2,
+            },
+          });
+        }
+        if (request.url.path.contains('/identities')) {
+          return envelope({
+            'id': actorId,
+            'displayName': 'Tunde',
+            'generation': 1,
+          });
+        }
+        if (request.url.path.endsWith('/events')) {
+          return envelope({
+            'id': jsonDecode(request.body)['id'],
+            'accepted': true,
+          }, 202);
+        }
+        return envelope(preview());
+      });
+      final api = GuestApi(client: client);
+      addTearDown(() {
+        api.dispose();
+        client.close();
+      });
+      await tester.runAsync(() async {
+        await session.enter(code);
+        await session.selectActor(actorId);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: GuestScreen(
+              session: session,
+              api: api,
+              links: const Stream<Uri>.empty(),
+            ),
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      });
+      await settle(tester);
+      timeoutLookup = true;
+      await tester.ensureVisible(find.text('Claim my seat'));
+      await tester.runAsync(() async {
+        await tester.tap(find.text('Claim my seat'));
+      });
+      await settle(tester);
+      expect(claims, isEmpty);
+      expect(session.hasPendingClaim(actorId, code), isFalse);
+      expect(find.textContaining('No claim was submitted'), findsOneWidget);
+      expect(find.textContaining('key is saved'), findsNothing);
+      expect(find.text('Check / retry confirmation'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+      // The parent can reuse its API after removing the screen.
+      timeoutLookup = false;
+      expect((await api.preview(code)).code, code);
+    },
+  );
+
+  testWidgets('failed key persistence never submits or reports a saved key', (
+    tester,
+  ) async {
+    final claims = <http.Request>[];
+    final client = MockClient((request) async {
+      if (request.url.path.endsWith('/claims')) claims.add(request);
+      if (request.url.path.endsWith('/booking')) {
+        return envelope({
+          'booking': null,
+          'availability': {
+            'activityId': activityId,
+            'planId': planId,
+            'capacity': 2,
+            'confirmedCount': 1,
+            'remainingSeats': 1,
+            'version': 2,
+          },
+        });
+      }
+      if (request.url.path.contains('/identities')) {
+        return envelope({
+          'id': actorId,
+          'displayName': 'Tunde',
+          'generation': 1,
+        });
+      }
+      if (request.url.path.endsWith('/events')) {
+        return envelope({
+          'id': jsonDecode(request.body)['id'],
+          'accepted': true,
+        }, 202);
+      }
+      return envelope(preview());
+    });
+    final api = GuestApi(client: client);
+    addTearDown(() {
+      api.dispose();
+      client.close();
+    });
+    await tester.runAsync(() async {
+      await session.enter(code);
+      await session.selectActor(actorId);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GuestScreen(
+            session: session,
+            api: api,
+            links: const Stream<Uri>.empty(),
+          ),
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
+    await settle(tester);
+    await tester.runAsync(() => Directory('${session.file.path}.tmp').create());
+    await tester.ensureVisible(find.text('Claim my seat'));
+    await tester.runAsync(() async {
+      await tester.tap(find.text('Claim my seat'));
+    });
+    await settle(tester);
+    expect(claims, isEmpty);
+    expect(session.hasPendingClaim(actorId, code), isFalse);
+    expect(
+      find.textContaining('Could not save your guest session'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('No claim was submitted'), findsOneWidget);
+    final restored = await tester.runAsync(
+      () => GuestSession.open(session.file),
+    );
+    expect(restored!.hasPendingClaim(actorId, code), isFalse);
+    expect(find.textContaining('key is saved'), findsNothing);
+    expect(find.text('Check / retry confirmation'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+    // The parent can reuse its API after removing the screen.
+
+    expect((await api.preview(code)).code, code);
+  });
+
+  testWidgets(
+    'unsupported and malformed links preserve the valid draft and details',
+    (tester) async {
+      final links = StreamController<Uri>();
+      final client = MockClient((request) async {
+        if (request.url.path.endsWith('/events')) {
+          return envelope({
+            'id': jsonDecode(request.body)['id'],
+            'accepted': true,
+          }, 202);
+        }
+        return envelope(preview());
+      });
+      final api = GuestApi(client: client);
+      addTearDown(() {
+        api.dispose();
+        client.close();
+      });
+      await tester.runAsync(() async {
+        await session.enter(code);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: GuestScreen(session: session, api: api, links: links.stream),
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      });
+      await settle(tester);
+      for (final link in [
+        'velio://invite/$code/extra',
+        'https://example.com/$code',
+        'velio://invite/bad',
+        'velio://invite/%FF',
+        'velio://invite/$code?journey=%FF',
+        'velio://invite/$code?journey=bad',
+        'velio://invite/$code?journey=${newId()}&journey=${newId()}',
+      ]) {
+        await tester.runAsync(() async {
+          links.add(Uri.parse(link));
+        });
+        await settle(tester);
+        expect(
+          find.textContaining('Cannot open this invitation link'),
+          findsOneWidget,
+        );
+        expect(session.code, code);
+        expect(find.text('Supper club'), findsOneWidget);
+      }
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Invitation code'),
+        'bad',
+      );
+      await tester.runAsync(() async {
+        await tester.tap(find.text('View invitation'));
+      });
+      await settle(tester);
+      expect(session.code, code);
+      expect(find.text('Supper club'), findsOneWidget);
+      expect(find.textContaining('12-character'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.runAsync(() => links.close());
+    },
+  );
+  testWidgets(
     'code entry renders activity and anonymous human previews before identity setup',
     (tester) async {
       final events = <Map<String, dynamic>>[];
@@ -325,6 +541,7 @@ void main() {
     'an uncertain claim retains its key across restart and retries without duplicate haptics',
     (tester) async {
       var failClaim = true;
+      var failLookup = false;
       var claimed = false;
       var haptics = 0;
       final keys = <String>[];
@@ -369,6 +586,7 @@ void main() {
           });
         }
         if (path.endsWith('/booking')) {
+          if (failLookup) throw TimeoutException('Recovery lookup timed out');
           return envelope({
             'booking': claimed ? booking : null,
             'availability': availability,
@@ -422,7 +640,11 @@ void main() {
         () => GuestSession.open(session.file),
       );
       failClaim = false;
+      failLookup = true;
       await launch(restored!);
+      expect(find.text('Check / retry confirmation'), findsOneWidget);
+      expect(restored.hasPendingClaim(actorId, code), isTrue);
+      failLookup = false;
       await tester.ensureVisible(find.text('Check / retry confirmation'));
       await tester.runAsync(() async {
         await tester.tap(find.text('Check / retry confirmation'));
