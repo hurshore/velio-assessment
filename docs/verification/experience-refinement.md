@@ -2,6 +2,19 @@
 
 Executed 9 October 2026 from main `b06d3de708d16e8990c5410ea0bba00d0671c005`, in dedicated branch `feat/27-velio-experience`. The dated PLANS.md §3/§6 refinement was recorded before UI changes, preserving the original decisions. All 24 supplied PNGs (IMG_0912–IMG_0935) were individually viewed. System fonts, semantic colors and abstract activity art adapt those references without inventing activity photographs, trust scores or community totals.
 
+## Owner visual review follow-up
+
+The web wordmark now uses a small period-sized dot. Flutter keeps its existing period size and uses the same `#89CF43` mint color. Native disclosures, including Booking reference, now have a white surface and rounded outline in collapsed and expanded states, with spacing around the booking reference.
+
+Current captures: [desktop wordmark](experience-refinement/web-logo-refinement.png), [narrow web wordmark](experience-refinement/web-narrow-logo-refinement.png), [native confirmation](experience-refinement/public-confirmed.png), [vouch confirmation](experience-refinement/vouch-confirmed.png), [native entry](experience-refinement/ios-entry.png). The older web task captures below retain the earlier larger dot; these two new web captures supersede that logo treatment. Native journey captures were refreshed from the real simulator run. Entry was captured manually with the surrounding simulator window.
+
+Full `npm run verify` passed again (12 tooling, 141 backend, 108 web and 49 Flutter tests, typechecks, analysis and builds). Both native live/offline invitation journeys passed again. Standards and specification reviews of the cosmetic follow-up found no issues. The collapsed booking-reference outline was visually inspected; both outline states share the same theme shape. Manual expansion could not be completed because simulator interaction became unavailable.
+
+| Follow-up rail | Activity | Journey | Confirmed booking |
+|---|---|---|---|
+| Public | `91d3aaf1-b69a-4c57-bd49-0199d1b0ee4e` | `5cd7ef09-39fd-4fbf-ab6b-b3d6670aa1ba` | `32f12983-387d-453a-96d3-0c1ec453de5c` |
+| Vouch | `0263027d-9012-4bbe-90af-4d595323ad06` | `1649a994-5bed-4b4a-9b52-d7220b36d4d9` | `7e2d7c62-83c8-41db-ba14-3311829654e8` |
+
 ## Executed validation
 
 The three issue seams were used: rendered web UI with API/storage boundaries; Flutter widgets with API/session boundaries; and real local API/PostgreSQL/Redis/live integration. Local API used port 3104, Vite port 5175, PostgreSQL 17.6 and Redis 8.2.1. Native execution used iPhone 17 simulator, iOS 26.2.
