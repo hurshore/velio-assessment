@@ -69,6 +69,6 @@ function HostAndBooker() {
         <p>PostgreSQL and Redis are ready.</p>
         <small>Request: {connection.requestId}</small>
       </>}
-    </section><a href={`${apiBase}/api/metrics`}>Open metrics</a></details>
+    </section><a href={`${apiBase}/api/metrics/summary`}>Open metrics</a></details>
   </main>;
 }
