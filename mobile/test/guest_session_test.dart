@@ -14,10 +14,14 @@ void main() {
     () async {
       final directory = await Directory.systemTemp.createTemp('velio-code-');
       addTearDown(() => directory.delete(recursive: true));
+
       final file = File('${directory.path}/guest.json');
+
       final session = await GuestSession.open(file);
       await session.enter('abcd-2345-efgh');
+
       final original = await file.readAsString();
+
       for (final invalid in ['bad', '${' ' * 1000}ABCD2345EFGH']) {
         await expectLater(session.enter(invalid), throwsFormatException);
         expect(await file.readAsString(), original);
@@ -30,8 +34,10 @@ void main() {
     () async {
       final directory = await Directory.systemTemp.createTemp('velio-invalid-');
       addTearDown(() => directory.delete(recursive: true));
+
       final file = File('${directory.path}/guest.json');
       const intent = '33333333-3333-4333-8333-333333333333:ABCD2345EFGH';
+
       for (final data in [
         {'journeyId': 1},
         {'actorId': []},
@@ -81,6 +87,7 @@ void main() {
         'velio-event-invalid-',
       );
       addTearDown(() => directory.delete(recursive: true));
+
       final file = File('${directory.path}/guest.json');
       final journey = newId();
       final event = <String, dynamic>{
@@ -94,6 +101,7 @@ void main() {
         'inviteCode': 'ABCD2345EFGH',
         'displayedState': 'valid',
       };
+
       for (final corrupt in [
         {...event, 'occurredAt': '2026-10-09'},
         {...event, 'occurredAt': '2026-02-30T12:00:00Z'},
@@ -119,10 +127,13 @@ void main() {
     () async {
       final directory = await Directory.systemTemp.createTemp('velio-resolve-');
       addTearDown(() => directory.delete(recursive: true));
+
       final file = File('${directory.path}/guest.json');
+
       final session = await GuestSession.open(file);
       const actor = '33333333-3333-4333-8333-333333333333';
       await session.enter('ABCD2345EFGH');
+
       final key = await session.startClaim(actor, 'ABCD2345EFGH');
       final original = await file.readAsString();
       final obstruction = await Directory('${file.path}.tmp').create();
@@ -133,6 +144,7 @@ void main() {
       expect(session.hasPendingClaim(actor, 'ABCD2345EFGH'), isTrue);
       expect(await file.readAsString(), original);
       await obstruction.delete();
+
       final restored = await GuestSession.open(file);
       expect(await restored.startClaim(actor, 'ABCD2345EFGH'), key);
     },
@@ -142,13 +154,16 @@ void main() {
     () async {
       final directory = await Directory.systemTemp.createTemp('velio-session-');
       addTearDown(() => directory.delete(recursive: true));
+
       final file = File('${directory.path}/guest.json');
       const journey = '44444444-4444-4444-8444-444444444444';
       const actor = '33333333-3333-4333-8333-333333333333';
+
       var session = await GuestSession.open(file);
       await session.enter('ABCD2345EFGH', linkedJourney: journey);
       await session.saveName('Tunde');
       await session.selectActor(actor);
+
       final key = await session.claimKey(actor, 'ABCD2345EFGH');
       session = await GuestSession.open(file);
       await session.enter(
@@ -167,9 +182,12 @@ void main() {
     () async {
       final directory = await Directory.systemTemp.createTemp('velio-events-');
       addTearDown(() => directory.delete(recursive: true));
+
       final file = File('${directory.path}/guest.json');
+
       var session = await GuestSession.open(file);
       await session.enter('ABCD2345EFGH');
+
       final event = <String, dynamic>{
         'id': newId(),
         'name': 'invite_opened',
@@ -182,6 +200,7 @@ void main() {
         'displayedState': 'full',
       };
       await session.enqueue(event);
+
       final received = <Map<String, dynamic>>[];
       var fail = true;
       final client = MockClient((request) async {

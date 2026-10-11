@@ -7,19 +7,30 @@ import { contact, DomainError, exact, marker, object, platform, rows, text, uuid
 const identityColumns = `id, display_name AS "displayName", generation,
   acquisition_parent_id AS "acquisitionParentId", acquisition_root_id AS "acquisitionRootId", acquisition_rail AS "acquisitionRail",
   synthetic, test`;
+
 export function identityRoutes(db: Database) {
   const router = Router();
+
   router.get('/', async (_request, response) => {
-    response.json({ data: await rows(db, `SELECT ${identityColumns} FROM users ORDER BY created_at, id`), requestId: response.locals.requestId });
+    response.json({
+      data: await rows(db, `SELECT ${identityColumns} FROM users ORDER BY created_at, id`),
+      requestId: response.locals.requestId,
+    });
   });
+
   router.get('/:id', async (request, response) => {
-    const [user] = await rows(db, `SELECT ${identityColumns} FROM users WHERE id = $1`, [uuid(request.params.id, 'Identity')]);
+    const [user] = await rows(db, `SELECT ${identityColumns} FROM users WHERE id = $1`, [
+      uuid(request.params.id, 'Identity'),
+    ]);
     if (!user) throw new DomainError(404, 'NOT_FOUND', 'Demo identity was not found.');
+
     response.json({ data: user, requestId: response.locals.requestId });
   });
+
   router.post('/', async (request, response) => {
     const body = object(request.body);
     exact(body, ['displayName', 'journeyId', 'platform', 'synthetic', 'test', 'inviteCode', 'contact']);
+
     const id = randomUUID();
     const displayName = text(body.displayName, 'Display name', 100);
     const synthetic = marker(body.synthetic);
@@ -27,11 +38,14 @@ export function identityRoutes(db: Database) {
     const source = platform(body.platform);
     const journeyId = uuid(body.journeyId, 'Journey');
     const userContact = body.contact === undefined ? null : contact(body.contact, 'Contact');
+
     const inviteId = body.inviteCode === undefined ? null : await signupInviteId(db, body.inviteCode, userContact);
     // Acquisition and its event share one statement, so an event failure cannot orphan signup history.
     // Invited users inherit inviter markers so synthetic referral chains stay out of product metrics;
     // like other invite events, the signup event also inherits the activity host's markers.
-    const [user] = await rows(db, `WITH invite AS (
+    const [user] = await rows(
+      db,
+      `WITH invite AS (
       SELECT i.id, i.activity_id, i.plan_id, i.inviter_id, i.inviter_root_id, i.invitee_generation, i.rail, inviter.synthetic, inviter.test,
         host.synthetic AS host_synthetic, host.test AS host_test
       FROM invites i JOIN users inviter ON inviter.id=i.inviter_id JOIN activities a ON a.id=i.activity_id JOIN users host ON host.id=a.host_id
@@ -52,13 +66,21 @@ export function identityRoutes(db: Database) {
         || CASE WHEN i.id IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('assignment',
           (SELECT ${assignmentJson('e')} FROM experiment_assignments e WHERE e.activity_id=i.activity_id)) END,
         u.synthetic OR COALESCE(i.host_synthetic, false), u.test OR COALESCE(i.host_test, false) FROM new_user u LEFT JOIN invite i ON true
-    ) SELECT ${identityColumns} FROM new_user`, [id, displayName, synthetic, test, randomUUID(), source, journeyId, inviteId, userContact]).catch(error => {
+    ) SELECT ${identityColumns} FROM new_user`,
+      [id, displayName, synthetic, test, randomUUID(), source, journeyId, inviteId, userContact]
+    ).catch(error => {
       if (error?.code === '23505' && error.constraint === 'users_contact_key') {
-        throw new DomainError(409, 'CONTACT_IN_USE', 'Another demo identity already uses this contact. Select that identity instead.');
+        throw new DomainError(
+          409,
+          'CONTACT_IN_USE',
+          'Another demo identity already uses this contact. Select that identity instead.'
+        );
       }
       throw error;
     });
+
     response.status(201).json({ data: user, requestId: response.locals.requestId });
   });
+
   return router;
 }

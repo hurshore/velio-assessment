@@ -9,6 +9,7 @@ import 'bounded_http.dart';
 import 'api_config.dart';
 
 bool _timezonesInitialized = false;
+
 void _initializeTimezones() {
   if (_timezonesInitialized) return;
   tzdata.initializeTimeZones();
@@ -55,6 +56,7 @@ class Availability {
       throw const FormatException('Invalid seat counts');
     }
   }
+
   final int capacity, confirmedCount, remainingSeats, version;
 }
 
@@ -70,6 +72,7 @@ class InvitePreview {
         !['valid', 'full', 'expired', 'started', 'cancelled'].contains(state)) {
       throw const FormatException('Unsupported invitation');
     }
+
     timestamp(data, 'createdAt');
     timestamp(data, 'expiresAt');
     rail = text(data, 'rail');
@@ -77,6 +80,7 @@ class InvitePreview {
     expiresAt = text(data, 'expiresAt');
     identifier(activity, 'id');
     identifier(activity, 'planId');
+
     for (final key in [
       'title',
       'description',
@@ -87,29 +91,38 @@ class InvitePreview {
     ]) {
       text(activity, key);
     }
+
     timestamp(activity, 'startsAt');
     integer(activity, 'priceMinor');
     if (!RegExp(r'^[A-Z]{3}$').hasMatch(text(activity, 'currency'))) {
       throw const FormatException('Invalid currency');
     }
+
     Availability(activity);
     text(inviter, 'displayName');
     if (!['host', 'booker'].contains(inviter['role'])) {
       throw const FormatException('Invalid inviter');
     }
+
     _initializeTimezones();
+
     try {
       tz.getLocation(text(activity, 'timezone'));
     } on tz.LocationNotFoundException {
       throw const FormatException('Invalid activity timezone');
     }
   }
+
   final String code, state;
   late final String rail, createdAt, expiresAt;
   final Map<String, dynamic> activity, inviter;
+
   String get activityId => activity['id'] as String;
+
   String get planId => activity['planId'] as String;
+
   Availability get availability => Availability(activity);
+
   Map<String, dynamic> toJson() => {
     'code': code,
     'state': state,
@@ -138,6 +151,7 @@ class InvitePreview {
         key: activity[key],
     },
   };
+
   InvitePreview withActivity(Map<String, dynamic> detail) => InvitePreview({
     ...toJson(),
     'state': text(detail, 'inviteState'),
@@ -151,6 +165,7 @@ class DemoIdentity {
       displayName = text(data, 'displayName') {
     integer(data, 'generation');
   }
+
   final String id, displayName;
 }
 
@@ -161,10 +176,12 @@ class BookingState {
       replayed = data['replayed'] == true,
       telemetryDegraded = data['telemetry'] == 'degraded' {
     final counts = object(data['availability']);
+
     if (counts['activityId'] != preview.activityId ||
         counts['planId'] != preview.planId) {
       throw const FormatException('Invalid booking availability');
     }
+
     if (booking case final b?) {
       identifier(b, 'id');
       timestamp(b, 'confirmedAt');
@@ -177,6 +194,7 @@ class BookingState {
       }
     }
   }
+
   final Availability availability;
   final Map<String, dynamic>? booking;
   final bool replayed, telemetryDegraded;
@@ -184,8 +202,10 @@ class BookingState {
 
 class ApiFailure implements Exception {
   ApiFailure(this.code, this.retryable, this.requestId);
+
   final String code, requestId;
   final bool retryable;
+
   @override
   String toString() => 'API $code (retryable: $retryable, request: $requestId)';
 }
@@ -196,6 +216,7 @@ class GuestApi {
     this.baseUrl = apiBaseUrl,
     this.timeout = const Duration(seconds: 8),
   }) : _transport = BoundedHttp(client: client, timeout: timeout);
+
   final BoundedHttp _transport;
   final String baseUrl;
   final Duration timeout;
@@ -219,29 +240,36 @@ class GuestApi {
     );
     final envelope = object(jsonDecode(response.body));
     final reference = text(envelope, 'requestId');
+
     if (response.statusCode >= 400) {
       final error = object(envelope['error']);
+
       if (error['retryable'] is! bool) {
         throw const FormatException('Invalid API error');
       }
+
       text(error, 'message');
+
       throw ApiFailure(
         text(error, 'code'),
         error['retryable'] as bool,
         reference,
       );
     }
+
     if (response.statusCode < 200 ||
         response.statusCode >= 300 ||
         !envelope.containsKey('data')) {
       throw const FormatException('Invalid API envelope');
     }
+
     return envelope['data'];
   }
 
   Future<InvitePreview> preview(String code) async => InvitePreview(
     object(await request('/invites/${Uri.encodeComponent(code)}')),
   );
+
   Future<void> deliver(GuestSession session) async {
     for (final event in session.pendingEvents) {
       final accepted = object(
@@ -267,6 +295,7 @@ class GuestApi {
 
   Future<DemoIdentity> identity(String id) async =>
       DemoIdentity(object(await request('/identities/$id')));
+
   Future<DemoIdentity> createIdentity(
     String name,
     String code,
@@ -288,14 +317,17 @@ class GuestApi {
       ),
     ),
   );
+
   Future<bool> recipientMatches(InvitePreview preview, String actor) async {
     if (preview.rail == 'public') return true;
+
     final data = object(
       await request('/invites/${preview.code}/recipient-check', actorId: actor),
     );
     if (data['matches'] is! bool) {
       throw const FormatException('Invalid recipient check');
     }
+
     return data['matches'] as bool;
   }
 
@@ -310,6 +342,7 @@ class GuestApi {
         preview,
         actor,
       );
+
   Future<BookingState> claim(
     InvitePreview preview,
     String actor,

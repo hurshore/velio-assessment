@@ -6,7 +6,10 @@ const defaultWebOrigin = 'http://localhost:5173';
 export function loadConfig(env: Record<string, string | undefined> = process.env) {
   function required(name: string): string {
     const value = env[name];
-    if (!value?.trim()) throw new Error(`${name} is required; fill the missing entry in .env (npm run setup reports missing keys). Preserve existing credentials.`);
+    if (!value?.trim())
+      throw new Error(
+        `${name} is required; fill the missing entry in .env (npm run setup reports missing keys). Preserve existing credentials.`
+      );
     return value;
   }
   return {

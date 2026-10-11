@@ -20,7 +20,9 @@ void main() {
   ) async {
     final setup = GuestApi();
     addTearDown(setup.dispose);
+
     final cohort = newId();
+
     final host = object(
       await setup.request(
         '/identities',
@@ -33,6 +35,7 @@ void main() {
         },
       ),
     );
+
     Future<Map<String, dynamic>> activity(
       String title,
       DateTime starts,
@@ -53,12 +56,15 @@ void main() {
         },
       ),
     );
+
     // Establish the inviter's eligibility before the fixed K cohort starts.
     await activity(
       'K cohort qualifier $cohort',
       DateTime.now().add(const Duration(days: 2)),
     );
+
     final from = utcTimestamp(DateTime.now());
+
     final directory = await getApplicationSupportDirectory();
     final files = <File>[];
     addTearDown(() async {
@@ -66,6 +72,7 @@ void main() {
         if (await file.exists()) await file.delete();
       }
     });
+
     Future<GuestSession> session() async {
       final file = File('${directory.path}/handoff-${newId()}.json');
       files.add(file);
@@ -80,6 +87,7 @@ void main() {
         '/metrics/$kind?${Uri(queryParameters: {'from': from, 'to': utcTimestamp(DateTime.now()), 'includeTest': '$includeTest'}).query}',
       ),
     );
+
     Future<void> checkpoint(String stage) async {
       final product = await report('product');
       final summary = await report('summary');
@@ -91,17 +99,21 @@ void main() {
     var completed = 0;
     DateTime? lastStart;
     final nativeLinks = AppLinks();
+
     for (final rail in ['public', 'vouch']) {
       for (final entry in ['link', 'code']) {
         final journey = newId();
         final contact = 'handoff-$journey@example.com';
         final starts = DateTime.now().add(const Duration(minutes: 3));
         lastStart = starts;
+
         late Map<String, dynamic> detail;
+
         for (var attempt = 0; attempt < 30; attempt++) {
           detail = await activity('Handoff $rail $entry $journey', starts);
           if (object(detail['assignment'])['variant'] == 'treatment') break;
         }
+
         expect(object(detail['assignment'])['variant'], 'treatment');
         await setup.request(
           '/activities/${detail['id']}/bookings',
@@ -110,6 +122,7 @@ void main() {
           key: newId(),
           body: {'platform': 'web', 'journeyId': newId()},
         );
+
         Future<Map<String, dynamic>> invite() async => object(
           await setup.request(
             '/activities/${detail['id']}/invites',
@@ -123,6 +136,7 @@ void main() {
             },
           ),
         );
+
         final original = await invite();
         final alternate = await invite();
         final code = original['code'] as String;
@@ -132,7 +146,9 @@ void main() {
           api.dispose();
           transport.close();
         });
+
         var current = await session();
+
         Future<void> launch() async {
           await tester.pumpWidget(
             MaterialApp(
@@ -146,6 +162,7 @@ void main() {
         }
 
         await launch();
+
         if (entry == 'link') {
           debugPrint('VELIO_LINK_READY=velio://invite/$code?journey=$journey');
         } else {
@@ -156,12 +173,15 @@ void main() {
           await tester.ensureVisible(find.text('View invitation'));
           await tester.tap(find.text('View invitation'));
         }
+
         await waitFor(
           tester,
           find.text(detail['title'] as String),
           timeout: const Duration(seconds: 45),
         );
+
         if (entry == 'link') expect(current.journeyId, journey);
+
         await tester.ensureVisible(find.text('Choose demo identity'));
         await tester.tap(find.text('Choose demo identity'));
         await waitFor(tester, find.text('Create demo identity'));
@@ -169,27 +189,33 @@ void main() {
           find.widgetWithText(TextField, 'Your display name'),
           'Handoff guest $journey',
         );
+
         if (rail == 'vouch') {
           await tester.enterText(
             find.widgetWithText(TextField, 'Your demo contact (optional)'),
             contact,
           );
         }
+
         await enabled(tester, 'Create demo identity');
         await tester.tap(find.text('Create demo identity'));
         await enabled(tester, 'Claim my seat');
         await tester.tap(find.text('Claim my seat'));
         await waitFor(tester, find.text('Your seat is confirmed'));
+
         final actor = current.actorId!;
+
         final preview = await setup.preview(code);
         final booking = (await setup.ownBooking(preview, actor)).booking!;
         completed++;
         await checkpoint('$rail/$entry committed-response-recovery');
+
         final before = await report('product');
         expect(object(before['openToClaim'])['notYetMature'], {
           'openedJourneys': completed,
           'convertedJourneys': completed,
         });
+
         final open = transport.events.firstWhere(
           (event) => event['name'] == 'invite_opened',
         );
@@ -199,6 +225,7 @@ void main() {
           )['accepted'],
           false,
         );
+
         final retry = await setup.claim(
           preview,
           actor,
@@ -211,6 +238,7 @@ void main() {
         await tester.pumpWidget(const SizedBox.shrink());
         await launch();
         await waitFor(tester, find.text('Your seat is confirmed'));
+
         // Fresh confirmation journeys, including another code, must remain recovery traffic.
         for (final recoveryCode in [code, alternate['code'] as String]) {
           await tester.pumpWidget(const SizedBox.shrink());
@@ -220,12 +248,15 @@ void main() {
           await launch();
           await waitFor(tester, find.text('Your seat is confirmed'));
         }
+
         await tester.pumpWidget(const SizedBox.shrink());
+
         final after = await report('product');
         expect(
           object(after['openToClaim'])['notYetMature'],
           object(before['openToClaim'])['notYetMature'],
         );
+
         for (final field in [
           'cohort',
           'byRail',
@@ -237,14 +268,17 @@ void main() {
             object(before['kFactor'])[field],
           );
         }
+
         expect(after['bookersInvite'], before['bookersInvite']);
         expect(after['holdout'], before['holdout']);
+
         final summary = await report('summary');
         expect(
           object(object(summary['bookings'])['rawOutcomes'])['committed'],
           completed * 2,
         );
         expect(object(summary['integrity'])['violatingActivities'], 0);
+
         final state = object(
           await setup.request('/activities/${detail['id']}'),
         );
@@ -256,12 +290,14 @@ void main() {
         );
       }
     }
+
     // Wait for the real activity-start deadlines; no clock rewriting or future report cutoff.
     while (DateTime.now().isBefore(
       lastStart!.add(const Duration(seconds: 1)),
     )) {
       await tester.pump(const Duration(seconds: 1));
     }
+
     final product = await report('product');
     final opens = object(product['openToClaim']);
     expect(object(opens['headline'])['openedJourneys'], 4);
@@ -275,11 +311,14 @@ void main() {
       'mobile': {'opened': 4, 'converted': 4},
     });
     expect(opens['status'], 'insufficient_sample');
+
     final k = object(product['kFactor']);
+
     for (final rail in ['public', 'vouch']) {
       expect(object(object(k['byRail'])[rail])['acquired'], 2);
       expect(object(object(k['byRail'])[rail])['activated'], 2);
     }
+
     expect(k['status'], 'partial_window');
     expect(object(product['bookersInvite'])['notYetMature'], {
       'qualifyingBookers': 5,

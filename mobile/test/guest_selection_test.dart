@@ -15,17 +15,23 @@ import 'live_fixture.dart';
 
 class FaultFile implements File {
   FaultFile(this.delegate);
+
   final File delegate;
   bool failWrites = false;
+
   @override
   String get path => delegate.path;
+
   @override
   Directory get parent =>
       failWrites ? Directory('/dev/null/session') : delegate.parent;
+
   @override
   Future<bool> exists() => delegate.exists();
+
   @override
   Future<Uint8List> readAsBytes() => delegate.readAsBytes();
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -46,7 +52,9 @@ void main() {
           () => Directory.systemTemp.createTemp('selection-'),
         ))!;
         addTearDown(() => directory.delete(recursive: true));
+
         final file = FaultFile(File('${directory.path}/session.json'));
+
         final session = (await tester.runAsync(() => GuestSession.open(file)))!;
         const candidate = '44444444-4444-4444-8444-444444444444';
         final subscriptions = <Map<String, dynamic>>[];
@@ -65,8 +73,10 @@ void main() {
           'confirmedAt': '2026-10-09T12:00:00Z',
         };
         final delayed = Completer<Map<String, dynamic>>();
+
         final client = MockClient((request) async {
           final path = request.url.path;
+
           if (path.endsWith('/events')) {
             return fixture.envelope({
               'id': jsonDecode(request.body)['id'],
@@ -112,6 +122,7 @@ void main() {
               'generation': 0,
             });
           }
+
           return fixture.envelope(originalPreview);
         });
         final api = GuestApi(client: client);
@@ -119,6 +130,7 @@ void main() {
           api.dispose();
           client.close();
         });
+
         final sockets = <FixtureSocket>[];
         await tester.runAsync(() async {
           await session.enter(fixture.code);
@@ -147,6 +159,7 @@ void main() {
           await Future<void>.delayed(const Duration(milliseconds: 100));
         });
         await fixture.settle(tester);
+
         final key = await tester.runAsync(
           () => session.claimKey(fixture.actorId, fixture.code),
         );
@@ -155,9 +168,12 @@ void main() {
           () => tester.tap(find.text('Choose demo identity')),
         );
         await fixture.settle(tester);
+
         if (scenario == 'save') file.failWrites = true;
+
         await tester.ensureVisible(find.text('Candidate guest'));
         await tester.runAsync(() => tester.tap(find.text('Candidate guest')));
+
         if (scenario == 'late') {
           await tester.pumpWidget(const SizedBox.shrink());
           await tester.runAsync(() async {
@@ -173,11 +189,14 @@ void main() {
           });
           expect(session.actorId, fixture.actorId);
           expect(tester.takeException(), isNull);
+
           return;
         }
+
         for (var i = 0; i < 8; i++) {
           await fixture.settle(tester);
         }
+
         if (scenario == 'recovery') {
           expect(session.actorId, candidate);
           expect(find.text('Your seat is confirmed'), findsOneWidget);
@@ -203,8 +222,10 @@ void main() {
             key,
           );
           await tester.pumpWidget(const SizedBox.shrink());
+
           return;
         }
+
         expect(session.actorId, fixture.actorId);
         expect(find.text('Your seat is confirmed'), findsNothing);
         expect(
@@ -220,11 +241,13 @@ void main() {
           ),
           key,
         );
+
         for (final socket in sockets) {
           subscriptions.addAll(
             socket.sent.where((m) => m['type'] == 'subscribe'),
           );
         }
+
         expect(
           subscriptions.every((m) => m['actorId'] == fixture.actorId),
           true,

@@ -10,6 +10,7 @@ abstract final class VelioTheme {
   static const lime = Color(0xffa3e75b);
   static const purple = Color(0xff8151d7);
   static const lavender = Color(0xffefe9fb);
+
   static ThemeData get theme => ThemeData(
     useMaterial3: true,
     scaffoldBackgroundColor: background,

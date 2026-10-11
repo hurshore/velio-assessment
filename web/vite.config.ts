@@ -9,7 +9,9 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     server: {
-      host: env.WEB_HOST ?? '127.0.0.1', port: 5173, strictPort: true,
+      host: env.WEB_HOST ?? '127.0.0.1',
+      port: 5173,
+      strictPort: true,
       proxy: { '/api': { target: localApiBase(env), ws: true } },
     },
     test: { environment: 'jsdom' },

@@ -24,11 +24,14 @@ void main() {
         () => GuestSession.open(File('${directory.path}/session.json')),
       ))!;
       addTearDown(() => directory.delete(recursive: true));
+
       const outsider = '44444444-4444-4444-8444-444444444444';
       final requests = <http.Request>[];
       final client = MockClient((request) async {
         requests.add(request);
+
         final path = request.url.path;
+
         if (path.endsWith('/events')) {
           return fixture.envelope({
             'id': jsonDecode(request.body)['id'],
@@ -82,6 +85,7 @@ void main() {
             403,
           );
         }
+
         return fixture.envelope({
           ...fixture.preview(),
           'rail': 'vouch',
@@ -149,6 +153,7 @@ void main() {
         () => tester.tap(find.text('Create demo identity')),
       );
       await fixture.settle(tester);
+
       for (
         var attempt = 0;
         find.textContaining('recipient-reference').evaluate().isEmpty &&
@@ -157,9 +162,13 @@ void main() {
       ) {
         await fixture.settle(tester);
       }
+
       expect(session.displayName, 'Entered name');
       expect(session.contact, 'wrong@example.com');
-      expect(find.textContaining('This vouch is for one intended contact.'), findsOneWidget);
+      expect(
+        find.textContaining('This vouch is for one intended contact.'),
+        findsOneWidget,
+      );
       await tester.ensureVisible(find.text('Technical error details'));
       await tester.tap(find.text('Technical error details'));
       await tester.pumpAndSettle();
@@ -167,6 +176,7 @@ void main() {
       await tester.ensureVisible(find.text('Matching recipient'));
       await tester.runAsync(() => tester.tap(find.text('Matching recipient')));
       await fixture.settle(tester);
+
       for (
         var attempt = 0;
         find
@@ -178,6 +188,7 @@ void main() {
       ) {
         await fixture.settle(tester);
       }
+
       expect(session.actorId, fixture.actorId);
       expect(
         find.text('Selected demo identity: Matching recipient'),

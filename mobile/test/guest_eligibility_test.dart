@@ -21,6 +21,7 @@ void main() {
           () => Directory.systemTemp.createTemp('eligibility-'),
         ))!;
         addTearDown(() => directory.delete(recursive: true));
+
         final session = (await tester.runAsync(
           () => GuestSession.open(File('${directory.path}/session.json')),
         ))!;
@@ -42,6 +43,7 @@ void main() {
         };
         final client = MockClient((request) async {
           final path = request.url.path;
+
           if (path.endsWith('/events')) {
             return fixture.envelope({
               'id': jsonDecode(request.body)['id'],
@@ -65,6 +67,7 @@ void main() {
               'generation': 0,
             });
           }
+
           return fixture.envelope(preview);
         });
         final api = GuestApi(client: client);
@@ -91,13 +94,16 @@ void main() {
         });
         await fixture.settle(tester);
         expect(find.text('Live availability connected.'), findsOneWidget);
+
         final button = tester.widget<FilledButton>(
           find.widgetWithText(FilledButton, 'Claim my seat'),
         );
         expect(button.onPressed != null, ahead);
+
         if (!ahead) {
           expect(find.text(unavailableMessages['expired']!), findsOneWidget);
         }
+
         await tester.pumpWidget(const SizedBox.shrink());
       },
     );

@@ -10,6 +10,7 @@ import 'package:velio_mobile/main.dart';
 
 void main() {
   final diagnostics = <String>[];
+
   void statusTest(String name, Future<void> Function(WidgetTester) body) {
     testWidgets(name, (tester) async {
       final previous = debugPrint;
@@ -17,6 +18,7 @@ void main() {
       debugPrint = (message, {wrapWidth}) {
         if (message != null) diagnostics.add(message);
       };
+
       try {
         await body(tester);
       } finally {
@@ -97,6 +99,7 @@ void main() {
   final fixtures = jsonDecode(
     File('../docs/contracts/readiness-fixtures.json').readAsStringSync(),
   ) as List<dynamic>;
+
   for (final fixture in fixtures) {
     statusTest('shared contract: ${fixture['name']}', (tester) async {
       final client = MockClient(
@@ -109,9 +112,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text(fixture['message'] as String), findsOneWidget);
       expect(find.text('API connected'), findsNothing);
+
       if ((fixture['message'] as String).contains('unexpected')) {
         expect(find.textContaining('Request: '), findsNothing);
       }
+
       await tester.pumpWidget(const SizedBox.shrink());
       client.close();
     });

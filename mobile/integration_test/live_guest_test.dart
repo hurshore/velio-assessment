@@ -20,21 +20,27 @@ class InterruptedTransport extends http.BaseClient {
   bool offline = false, loseClaim = true;
   final events = <Map<String, dynamic>>[];
   final keys = <String>[];
+
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     if (offline) throw http.ClientException('Integration: offline');
+
     if (request.url.path.endsWith('/events') && request is http.Request) {
       events.add(jsonDecode(request.body) as Map<String, dynamic>);
     }
+
     final response = await delegate.send(request);
+
     if (request.url.path.endsWith('/claims')) {
       keys.add(request.headers['Idempotency-Key']!);
+
       if (loseClaim) {
         loseClaim = false;
         await response.stream.drain<void>();
         throw http.ClientException('Integration: lost committed response');
       }
     }
+
     return response;
   }
 
@@ -44,7 +50,9 @@ class InterruptedTransport extends http.BaseClient {
 
 Future<void> enabled(WidgetTester tester, String title) async {
   await helpers.waitFor(tester, find.text(title));
+
   final deadline = DateTime.now().add(const Duration(seconds: 12));
+
   while (tester
               .widget<FilledButton>(find.widgetWithText(FilledButton, title))
               .onPressed ==
@@ -52,6 +60,7 @@ Future<void> enabled(WidgetTester tester, String title) async {
       DateTime.now().isBefore(deadline)) {
     await tester.pump(const Duration(milliseconds: 100));
   }
+
   expect(
     tester
         .widget<FilledButton>(find.widgetWithText(FilledButton, title))
@@ -68,10 +77,13 @@ void main() {
     (tester) async {
       final setup = GuestApi();
       addTearDown(setup.dispose);
+
       final directory = await getApplicationSupportDirectory();
+
       for (final rail in ['public', 'vouch']) {
         final journey = newId();
         final contact = 'mobile-$journey@example.com';
+
         final host = object(
           await setup.request(
             '/identities',
@@ -107,14 +119,17 @@ void main() {
         );
         final code = invite['code'] as String;
         final file = File('${directory.path}/live-$journey.json');
+
         var session = await GuestSession.open(file);
         await session.enter(code, linkedJourney: journey);
+
         final transport = InterruptedTransport();
         final api = GuestApi(client: transport);
         addTearDown(() {
           api.dispose();
           transport.close();
         });
+
         Future<LiveSocket> connection(Uri uri) async {
           if (transport.offline) {
             throw const SocketException('Integration: offline');
@@ -154,11 +169,13 @@ void main() {
         );
         await tester.pumpAndSettle();
         await binding.takeScreenshot('$rail-identities');
+
         final displayName = 'Amara · review ${journey.substring(0, 6)}';
         await tester.enterText(
           find.widgetWithText(TextField, 'Your display name'),
           displayName,
         );
+
         if (rail == 'vouch') {
           // A missing contact cannot create a vouch-acquired identity, and the entered name remains.
           await enabled(tester, 'Create demo identity');
@@ -182,9 +199,11 @@ void main() {
             contact.toUpperCase(),
           );
         }
+
         await enabled(tester, 'Create demo identity');
         await tester.tap(find.text('Create demo identity'));
         await enabled(tester, 'Claim my seat');
+
         final acceptedActor = session.actorId;
         await tester.ensureVisible(find.text('Choose demo identity'));
         await tester.tap(find.text('Choose demo identity'));
@@ -198,6 +217,7 @@ void main() {
         await tester.tap(
           find.widgetWithText(OutlinedButton, host['displayName'] as String),
         );
+
         if (rail == 'vouch') {
           await helpers.waitFor(
             tester,
@@ -211,6 +231,7 @@ void main() {
           );
           expect(session.actorId, host['id']);
         }
+
         await tester.ensureVisible(find.text('Choose demo identity'));
         await tester.tap(find.text('Choose demo identity'));
         await helpers.waitFor(
@@ -230,13 +251,16 @@ void main() {
         await tester.pumpAndSettle();
         await binding.takeScreenshot('$rail-confirmed');
         expect(transport.keys, hasLength(1));
+
         final actor = session.actorId!;
+
         final confirmed = await setup.ownBooking(
           await setup.preview(code),
           actor,
         );
         expect(confirmed.availability.remainingSeats, 1);
         expect(session.hasPendingClaim(actor, code), false);
+
         final open = transport.events.firstWhere(
           (event) => event['name'] == 'invite_opened',
         );
@@ -304,6 +328,7 @@ void main() {
           'VELIO_LIVE_GUEST_VERIFIED rail=$rail journey=$journey activity=${activity['id']} actor=$actor booking=${confirmed.booking!['id']} code=$code',
         );
         await tester.pumpWidget(const SizedBox.shrink());
+
         final unavailableFile = File(
           '${directory.path}/unavailable-$journey.json',
         );

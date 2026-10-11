@@ -17,6 +17,7 @@ void main() {
 
 class VelioApp extends StatelessWidget {
   const VelioApp({super.key, this.client, this.showConnection = false});
+
   final bool showConnection;
   final http.Client? client;
 
@@ -31,6 +32,7 @@ class VelioApp extends StatelessWidget {
 
 class ConnectionScreen extends StatefulWidget {
   const ConnectionScreen({super.key, this.client});
+
   final http.Client? client;
 
   @override
@@ -57,13 +59,16 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
   Future<void> _checkConnection() async {
     if (_checking) return;
+
     _checking = true;
+
     final attempt = ++_attempt;
     setState(() {
       _loading = true;
       _error = null;
       _requestId = null;
     });
+
     try {
       final response = await _transport.send(
         'GET',
@@ -73,7 +78,9 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         response.statusCode,
         jsonDecode(response.body),
       );
+
       if (!mounted || attempt != _attempt) return;
+
       setState(() {
         _error = readiness.error;
         _requestId = readiness.requestId;

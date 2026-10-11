@@ -5,11 +5,14 @@ import 'package:velio_mobile/guest_live.dart';
 
 class FixtureSocket implements LiveSocket {
   FixtureSocket(this.detail);
+
   final Map<String, dynamic> detail;
   final controller = StreamController<Object?>();
   final sent = <Map<String, dynamic>>[];
+
   @override
   Stream<Object?> get messages => controller.stream;
+
   void snapshot({Map<String, dynamic>? activity, String? eventId}) {
     final value = activity ?? detail;
     controller.add(
@@ -35,6 +38,7 @@ class FixtureSocket implements LiveSocket {
   void send(String message) {
     final data = jsonDecode(message) as Map<String, dynamic>;
     sent.add(data);
+
     if (data['type'] == 'subscribe') scheduleMicrotask(snapshot);
   }
 

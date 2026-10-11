@@ -11,7 +11,9 @@ import 'guest_session.dart';
 
 class GuestHost extends StatefulWidget {
   const GuestHost({super.key, this.sessionFile});
+
   final File? sessionFile;
+
   @override
   State<GuestHost> createState() => _GuestHostState();
 }
@@ -24,6 +26,7 @@ class _GuestHostState extends State<GuestHost> {
   bool _linkReady = false;
   Uri? _pendingLink;
   String? _error;
+
   @override
   void initState() {
     super.initState();
@@ -41,6 +44,7 @@ class _GuestHostState extends State<GuestHost> {
           _links.addError(error);
           return;
         }
+
         if (mounted) {
           setState(
             () => _error =
@@ -61,6 +65,7 @@ class _GuestHostState extends State<GuestHost> {
           );
       final session = await GuestSession.open(file);
       if (!mounted) return;
+
       setState(() {
         _session = session;
         _api ??= GuestApi();
@@ -68,6 +73,7 @@ class _GuestHostState extends State<GuestHost> {
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _linkReady = true;
+
         if (mounted && _pendingLink != null) {
           _links.add(_pendingLink!);
           _pendingLink = null;
@@ -83,6 +89,7 @@ class _GuestHostState extends State<GuestHost> {
         );
         return true;
       }());
+
       if (mounted) {
         setState(
           () => _error = error is FormatException

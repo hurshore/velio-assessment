@@ -29,6 +29,7 @@ void main() {
       ]) {
         final client = MockClient((_) async => http.Response(body, 200));
         final api = GuestApi(client: client);
+
         try {
           await api.preview(code);
           fail('Malformed preview must be rejected');
@@ -47,6 +48,7 @@ void main() {
       (_) async => throw http.ClientException('Offline'),
     );
     final api = GuestApi(client: client);
+
     try {
       await api.preview(code);
       fail('Disconnected request must fail');
