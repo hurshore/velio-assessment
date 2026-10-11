@@ -18,6 +18,7 @@ export const maxIntegrityDetails = maxReportDetails;
 export const z95 = 1.959963984540054;
 
 export type SampleStatus = 'no_data' | 'insufficient_sample' | 'observed';
+
 export function sampleStatus(sample: number, trigger: number): SampleStatus {
   return !sample ? 'no_data' : sample < trigger ? 'insufficient_sample' : 'observed';
 }
@@ -25,10 +26,12 @@ export function sampleStatus(sample: number, trigger: number): SampleStatus {
 // Wilson score interval: bounds stay inside [0,1] for small samples. Callers guard total > 0.
 export function wilson95(successes: number, total: number): [number, number] {
   if (total <= 0) throw new RangeError('A Wilson interval needs a positive sample.');
+
   const z2 = z95 * z95;
   const p = successes / total;
   const denominator = 1 + z2 / total;
   const center = (p + z2 / (2 * total)) / denominator;
-  const spread = (z95 * Math.sqrt(p * (1 - p) / total + z2 / (4 * total * total))) / denominator;
+  const spread = (z95 * Math.sqrt((p * (1 - p)) / total + z2 / (4 * total * total))) / denominator;
+
   return [center - spread, center + spread];
 }

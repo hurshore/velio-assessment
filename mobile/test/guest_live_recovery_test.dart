@@ -28,6 +28,7 @@ void main() {
     (tester) async {
       var offline = false;
       var advanced = false;
+
       Map<String, Object?> currentPreview() => advanced
           ? {
               ...fixture.preview(state: 'full'),
@@ -39,14 +40,17 @@ void main() {
               },
             }
           : fixture.preview();
+
       final events = <Map<String, dynamic>>[];
       final client = MockClient((request) async {
         if (offline) throw http.ClientException('Disconnected');
+
         if (request.url.path.endsWith('/events')) {
           final event = jsonDecode(request.body) as Map<String, dynamic>;
           events.add(event);
           return fixture.envelope({'id': event['id'], 'accepted': true}, 202);
         }
+
         return fixture.envelope(currentPreview());
       });
       final api = GuestApi(client: client);
@@ -54,6 +58,7 @@ void main() {
         api.dispose();
         client.close();
       });
+
       Future<LiveSocket> connect(Uri uri) async {
         if (offline) throw const SocketException('Offline');
         return FixtureSocket(
@@ -64,6 +69,7 @@ void main() {
       }
 
       await tester.runAsync(() => session.enter(fixture.code));
+
       Future<void> launch(GuestSession state) async {
         await tester.runAsync(() async {
           await tester.pumpWidget(
@@ -85,6 +91,7 @@ void main() {
       expect(find.text('Participant 1'), findsOneWidget);
       await tester.pumpWidget(const SizedBox.shrink());
       offline = true;
+
       final restored = await tester.runAsync(
         () => GuestSession.open(session.file),
       );
@@ -108,6 +115,7 @@ void main() {
       expect(events.first['journeyId'], restored.journeyId);
       expect(find.text('Participant 2'), findsOneWidget);
       await fixture.settle(tester);
+
       final persisted = await tester.runAsync(
         () => GuestSession.open(session.file),
       );
@@ -155,6 +163,7 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 100));
       });
       await fixture.settle(tester);
+
       const event = '99999999-9999-4999-8999-999999999999';
       final full = withParticipants({
         ...Map<String, dynamic>.from(fixture.preview()['activity'] as Map),
@@ -171,6 +180,7 @@ void main() {
       expect(find.text('Participant 2'), findsOneWidget);
       expect(find.text(unavailableMessages['full']!), findsOneWidget);
       expect(socket.sent.where((m) => m['type'] == 'ack').single['version'], 3);
+
       final beforeReconciliation = await tester.runAsync(
         () => session.file.readAsString(),
       );
@@ -187,6 +197,7 @@ void main() {
       expect(find.text('Participant 2'), findsOneWidget);
       expect(socket.sent.where((m) => m['eventId'] == event), hasLength(1));
       expect(socket.sent.where((m) => m['eventId'] == older), hasLength(1));
+
       for (var i = 0; i < 3; i++) {
         await tester.runAsync(() async {
           socket.snapshot(activity: full);
@@ -194,6 +205,7 @@ void main() {
         });
         await fixture.settle(tester);
       }
+
       expect(
         await tester.runAsync(() => session.file.readAsString()),
         beforeReconciliation,
@@ -202,6 +214,7 @@ void main() {
         await tester.runAsync(() async => (await session.file.stat()).modified),
         beforeModified,
       );
+
       final persisted = await tester.runAsync(
         () => GuestSession.open(session.file),
       );
@@ -219,6 +232,7 @@ void main() {
       Completer<http.Response>? refresh;
       final client = MockClient((request) async {
         final path = request.url.path;
+
         if (path.endsWith('/events')) {
           return fixture.envelope({
             'id': jsonDecode(request.body)['id'],
@@ -245,6 +259,7 @@ void main() {
           });
         }
         if (refresh != null) return refresh.future;
+
         return fixture.envelope(fixture.preview());
       });
       final api = GuestApi(client: client);
@@ -252,6 +267,7 @@ void main() {
         api.dispose();
         client.close();
       });
+
       Future<LiveSocket> connect(Uri uri) async {
         final socket = FixtureSocket(
           withParticipants(
@@ -358,6 +374,7 @@ void main() {
       };
       final client = MockClient((request) async {
         final path = request.url.path;
+
         if (path.endsWith('/events')) {
           return fixture.envelope({
             'id': jsonDecode(request.body)['id'],
@@ -392,6 +409,7 @@ void main() {
             'generation': 0,
           });
         }
+
         return fixture.envelope(fixture.preview());
       });
       final api = GuestApi(client: client);
@@ -399,6 +417,7 @@ void main() {
         api.dispose();
         client.close();
       });
+
       String? originalKey;
       await tester.runAsync(() async {
         await session.enter(fixture.code);
@@ -430,6 +449,7 @@ void main() {
       await fixture.settle(tester);
       await tester.ensureVisible(find.text('Booked guest'));
       await tester.runAsync(() => tester.tap(find.text('Booked guest')));
+
       for (
         var attempt = 0;
         find.text('Your seat is confirmed').evaluate().isEmpty && attempt < 10;
@@ -437,14 +457,17 @@ void main() {
       ) {
         await fixture.settle(tester);
       }
+
       expect(find.text('Your seat is confirmed'), findsOneWidget);
       await tester.ensureVisible(find.text('Recover earlier confirmation'));
       await tester.runAsync(
         () => tester.tap(find.text('Recover earlier confirmation')),
       );
+
       for (var attempt = 0; attempt < 10; attempt++) {
         await fixture.settle(tester);
       }
+
       expect(session.actorId, fixture.actorId);
       expect(find.text('Your seat is confirmed'), findsNothing);
       expect(find.text('Check / retry confirmation'), findsOneWidget);

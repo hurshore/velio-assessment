@@ -7,6 +7,7 @@ class BoundedHttp {
   BoundedHttp({http.Client? client, this.timeout = const Duration(seconds: 8)})
     : _client = client ?? http.Client(),
       _ownsClient = client == null;
+
   final http.Client _client;
   final bool _ownsClient;
   final Duration timeout;
@@ -20,11 +21,14 @@ class BoundedHttp {
     String? body,
   }) async {
     if (_disposed) throw StateError('HTTP transport is closed');
+
     final abort = Completer<void>();
     _requests.add(abort);
+
     final timer = Timer(timeout, () {
       if (!abort.isCompleted) abort.complete();
     });
+
     try {
       final request = http.AbortableRequest(
         method,
@@ -33,6 +37,7 @@ class BoundedHttp {
       );
       if (headers != null) request.headers.addAll(headers);
       if (body != null) request.body = body;
+
       return await (() async => http.Response.fromStream(
         await _client.send(request),
       ))().timeout(timeout);
@@ -45,9 +50,11 @@ class BoundedHttp {
 
   void dispose() {
     _disposed = true;
+
     for (final abort in _requests) {
       if (!abort.isCompleted) abort.complete();
     }
+
     if (_ownsClient) _client.close();
   }
 }

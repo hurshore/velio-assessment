@@ -10,13 +10,17 @@ void main() {
   ) async {
     await tester.pumpWidget(const app.VelioApp(showConnection: true));
     await tester.pumpAndSettle(const Duration(milliseconds: 100));
+
     final deadline = DateTime.now().add(const Duration(seconds: 10));
+
     while (find.text('API connected').evaluate().isEmpty &&
         DateTime.now().isBefore(deadline)) {
       await tester.pump(const Duration(milliseconds: 200));
     }
+
     expect(find.text('API connected'), findsOneWidget);
     expect(find.text('PostgreSQL and Redis are ready.'), findsOneWidget);
+
     final reference = tester
         .widget<Text>(find.textContaining('Request: '))
         .data!;

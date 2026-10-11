@@ -18,14 +18,18 @@ class LostClaimResponse extends http.BaseClient {
   bool loseNextClaim = true;
   final keys = <String>[];
   final events = <Map<String, dynamic>>[];
+
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     if (request.url.path.endsWith('/events') && request is http.Request) {
       events.add(jsonDecode(request.body) as Map<String, dynamic>);
     }
+
     final response = await delegate.send(request);
+
     if (request.url.path.endsWith('/claims')) {
       keys.add(request.headers['Idempotency-Key']!);
+
       if (loseNextClaim) {
         loseNextClaim = false;
         await response.stream.drain<void>();
@@ -34,6 +38,7 @@ class LostClaimResponse extends http.BaseClient {
         );
       }
     }
+
     return response;
   }
 
@@ -43,15 +48,18 @@ class LostClaimResponse extends http.BaseClient {
 
 class CompetingBooking extends http.BaseClient {
   CompetingBooking(this.beforeClaim);
+
   final Future<void> Function() beforeClaim;
   final delegate = http.Client();
   bool raced = false;
+
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     if (request.url.path.endsWith('/claims') && !raced) {
       raced = true;
       await beforeClaim();
     }
+
     return delegate.send(request);
   }
 
@@ -87,6 +95,7 @@ Future<Map<String, dynamic>> treatmentActivity(
       return activity;
     }
   }
+
   throw StateError(
     'No treatment fixture after 30 attempts. Check the configured treatment allocation.',
   );
@@ -98,9 +107,11 @@ Future<void> waitFor(
   Duration timeout = const Duration(seconds: 12),
 }) async {
   final deadline = DateTime.now().add(timeout);
+
   while (finder.evaluate().isEmpty && DateTime.now().isBefore(deadline)) {
     await tester.pump(const Duration(milliseconds: 200));
   }
+
   expect(finder, findsOneWidget);
   await tester.pumpAndSettle();
 }
@@ -112,6 +123,7 @@ void main() {
     (tester) async {
       final nativeLinks = AppLinks();
       final apis = <GuestApi>[];
+
       GuestApi ownedApi({http.Client? client}) {
         final api = GuestApi(client: client);
         apis.add(api);
@@ -123,8 +135,10 @@ void main() {
           api.dispose();
         }
       });
+
       final setup = ownedApi();
       final journey = newId();
+
       final host = object(
         await setup.request(
           '/identities',
@@ -151,8 +165,10 @@ void main() {
         ),
       );
       final code = invite['code'] as String;
+
       final directory = await getApplicationSupportDirectory();
       final file = File('${directory.path}/integration-$journey.json');
+
       final session = await GuestSession.open(file);
       final transport = LostClaimResponse();
       await tester.pumpWidget(
@@ -177,6 +193,7 @@ void main() {
       await tester.ensureVisible(find.text('Choose demo identity'));
       await tester.tap(find.text('Choose demo identity'));
       await waitFor(tester, find.text('Create demo identity'));
+
       final guestName = 'Mobile guest · $journey';
       await tester.enterText(
         find.widgetWithText(TextField, 'Your display name'),
@@ -190,6 +207,7 @@ void main() {
       await waitFor(tester, find.text('Your seat is confirmed'));
       expect(transport.keys, hasLength(1));
       expect(transport.events, hasLength(2));
+
       final replayEvent = object(
         await setup.request(
           '/events',
@@ -198,7 +216,9 @@ void main() {
         ),
       );
       expect(replayEvent['accepted'], false);
+
       final actor = session.actorId!;
+
       final confirmed = await setup.ownBooking(
         await setup.preview(code),
         actor,
@@ -206,6 +226,7 @@ void main() {
       expect(confirmed.availability.remainingSeats, 0);
       expect(confirmed.booking, isNotNull);
       await tester.pumpWidget(const SizedBox.shrink());
+
       final restored = await GuestSession.open(file);
       await tester.pumpWidget(
         MaterialApp(
@@ -253,10 +274,12 @@ void main() {
         ),
       );
       final raceCode = raceInvite['code'] as String;
+
       final fallback = await GuestSession.open(
         File('${directory.path}/fallback-$journey.json'),
       );
       await fallback.selectActor(loser['id'] as String);
+
       final competitor = CompetingBooking(() async {
         await setup.request(
           '/activities/${raceActivity['id']}/bookings',
@@ -283,6 +306,7 @@ void main() {
       await tester.tap(find.text('View invitation'));
       await waitFor(tester, find.text(raceActivity['title'] as String));
       await waitFor(tester, find.text('Claim my seat'));
+
       while (tester
               .widget<FilledButton>(
                 find.widgetWithText(FilledButton, 'Claim my seat'),
@@ -291,6 +315,7 @@ void main() {
           null) {
         await tester.pump(const Duration(milliseconds: 200));
       }
+
       await tester.ensureVisible(find.text('Claim my seat'));
       await tester.tap(find.text('Claim my seat'));
       await waitFor(

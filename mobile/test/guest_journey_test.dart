@@ -21,6 +21,7 @@ const code = 'ABCD2345EFGH';
 const activityId = '11111111-1111-4111-8111-111111111111';
 const planId = '22222222-2222-4222-8222-222222222222';
 const actorId = '33333333-3333-4333-8333-333333333333';
+
 Map<String, Object?> preview({String state = 'valid'}) => {
   'code': code,
   'rail': 'public',
@@ -46,6 +47,7 @@ Map<String, Object?> preview({String state = 'valid'}) => {
     'currency': 'NGN',
   },
 };
+
 Future<void> settle(WidgetTester tester) async {
   for (var i = 0; i < 4; i++) {
     await tester.runAsync(() async {
@@ -76,6 +78,7 @@ void main() {
       final claims = <http.Request>[];
       final client = MockClient((request) async {
         if (request.url.path.endsWith('/claims')) claims.add(request);
+
         if (request.url.path.endsWith('/booking')) {
           if (timeoutLookup) throw TimeoutException('Lookup timed out');
           return envelope({
@@ -90,6 +93,7 @@ void main() {
             },
           });
         }
+
         if (request.url.path.contains('/identities')) {
           return envelope({
             'id': actorId,
@@ -103,6 +107,7 @@ void main() {
             'accepted': true,
           }, 202);
         }
+
         return envelope(preview());
       });
       final api = GuestApi(client: client);
@@ -150,6 +155,7 @@ void main() {
     final claims = <http.Request>[];
     final client = MockClient((request) async {
       if (request.url.path.endsWith('/claims')) claims.add(request);
+
       if (request.url.path.endsWith('/booking')) {
         return envelope({
           'booking': null,
@@ -176,6 +182,7 @@ void main() {
           'accepted': true,
         }, 202);
       }
+
       return envelope(preview());
     });
     final api = GuestApi(client: client);
@@ -212,6 +219,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.textContaining('No claim was submitted'), findsOneWidget);
+
     final restored = await tester.runAsync(
       () => GuestSession.open(session.file),
     );
@@ -257,6 +265,7 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 100));
       });
       await settle(tester);
+
       for (final link in [
         'velio://invite/$code/extra',
         'https://example.com/$code',
@@ -277,6 +286,7 @@ void main() {
         expect(session.code, code);
         expect(find.text('Supper club'), findsOneWidget);
       }
+
       await tester.enterText(
         find.widgetWithText(TextField, 'Invitation code'),
         'bad',
@@ -302,9 +312,11 @@ void main() {
           events.add(jsonDecode(request.body) as Map<String, dynamic>);
           return envelope({'id': events.last['id'], 'accepted': true}, 202);
         }
+
         if (request.url.path == '/api/invites/$code') {
           return envelope(preview());
         }
+
         fail('Unexpected request before identity setup: ${request.url}');
       });
       await tester.pumpWidget(
@@ -363,9 +375,11 @@ void main() {
         SystemChannels.platform,
         (call) async {
           if (call.method == 'HapticFeedback.vibrate') haptics++;
+
           return null;
         },
       );
+
       final booking = {
         'id': '66666666-6666-4666-8666-666666666666',
         'activityId': activityId,
@@ -387,8 +401,11 @@ void main() {
         if (offline) {
           throw http.ClientException('Offline on confirmation refresh');
         }
+
         requests.add(request);
+
         final path = request.url.path;
+
         if (path == '/api/events') {
           return envelope({
             'id': jsonDecode(request.body)['id'],
@@ -414,6 +431,7 @@ void main() {
             'availability': availability,
           });
         }
+
         if (path == '/api/invites/$code/claims') {
           claimed = true;
           return envelope({
@@ -423,6 +441,7 @@ void main() {
             'telemetry': 'ok',
           }, 201);
         }
+
         fail('Unexpected request: $path');
       });
       await tester.runAsync(() => session.enter(code));
@@ -463,6 +482,7 @@ void main() {
       await settle(tester);
       expect(find.text('Your seat is confirmed'), findsOneWidget);
       expect(haptics, 1);
+
       final signup = requests.singleWhere(
         (r) => r.url.path == '/api/identities' && r.method == 'POST',
       );
@@ -472,6 +492,7 @@ void main() {
         'journeyId': session.journeyId,
         'platform': 'mobile',
       });
+
       final claim = requests.singleWhere((r) => r.url.path.endsWith('/claims'));
       expect(
         claim.headers['Idempotency-Key'],
@@ -482,6 +503,7 @@ void main() {
         'journeyId': session.journeyId,
       });
       await tester.pumpWidget(const SizedBox.shrink());
+
       final restored = await tester.runAsync(
         () => GuestSession.open(session.file),
       );
@@ -530,11 +552,14 @@ void main() {
       final client = MockClient((request) async {
         if (request.url.path == '/api/events') {
           final event = jsonDecode(request.body);
+
           if (event['name'] == 'invite_opened') {
             events.add(event['displayedState'] as String);
           }
+
           return envelope({'id': event['id'], 'accepted': true}, 202);
         }
+
         return envelope(preview(state: state));
       });
       await tester.runAsync(() async {
@@ -562,6 +587,7 @@ void main() {
       client.close();
     });
   }
+
   testWidgets(
     'an uncertain claim retains its key across restart and retries without duplicate haptics',
     (tester) async {
@@ -591,11 +617,14 @@ void main() {
         SystemChannels.platform,
         (call) async {
           if (call.method == 'HapticFeedback.vibrate') haptics++;
+
           return null;
         },
       );
+
       final client = MockClient((request) async {
         final path = request.url.path;
+
         if (path == '/api/events') {
           return envelope({
             'id': jsonDecode(request.body)['id'],
@@ -610,6 +639,7 @@ void main() {
             'generation': 1,
           });
         }
+
         if (path.endsWith('/booking')) {
           if (failLookup) throw TimeoutException('Recovery lookup timed out');
           return envelope({
@@ -617,20 +647,25 @@ void main() {
             'availability': availability,
           });
         }
+
         if (path.endsWith('/claims')) {
           keys.add(request.headers['Idempotency-Key']!);
           if (failClaim) {
             throw http.ClientException('Disconnected before response');
           }
+
           claimed = true;
+
           return envelope({
             'booking': booking,
             'availability': availability,
             'replayed': false,
           }, 201);
         }
+
         fail('Unexpected request: $path');
       });
+
       Future<void> launch(GuestSession current) async {
         await tester.runAsync(() async {
           await tester.pumpWidget(
@@ -662,6 +697,7 @@ void main() {
       expect(find.text('Check / retry confirmation'), findsOneWidget);
       expect(haptics, 0);
       await tester.pumpWidget(const SizedBox.shrink());
+
       final restored = await tester.runAsync(
         () => GuestSession.open(session.file),
       );
@@ -697,6 +733,7 @@ void main() {
           events.add(event);
           return envelope({'id': event['id'], 'accepted': true}, 202);
         }
+
         return envelope(
           malformed
               ? {
@@ -750,11 +787,14 @@ void main() {
         SystemChannels.platform,
         (call) async {
           if (call.method == 'HapticFeedback.vibrate') haptics++;
+
           return null;
         },
       );
+
       final client = MockClient((request) async {
         final path = request.url.path;
+
         if (path == '/api/events') {
           return envelope({
             'id': jsonDecode(request.body)['id'],
@@ -782,6 +822,7 @@ void main() {
             },
           });
         }
+
         return http.Response(
           jsonEncode({
             'error': {

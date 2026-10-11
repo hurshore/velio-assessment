@@ -16,6 +16,7 @@ void main() {
       tester.view.devicePixelRatio = 1;
       tester.view.viewInsets = const FakeViewPadding(bottom: 250);
       addTearDown(tester.view.reset);
+
       final directory = (await tester.runAsync(
         () => Directory.systemTemp.createTemp('guest-layout-'),
       ))!;

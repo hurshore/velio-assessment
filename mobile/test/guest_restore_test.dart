@@ -25,6 +25,7 @@ void main() {
         () => Directory.systemTemp.createTemp('velio-restore-'),
       ))!;
       addTearDown(() => directory.delete(recursive: true));
+
       final file = File('${directory.path}/guest.json');
       final original = jsonEncode({
         'code': 1,
@@ -87,6 +88,7 @@ void main() {
 class UnreadableFile extends Fake implements File {
   @override
   Future<bool> exists() async => true;
+
   @override
   Future<Uint8List> readAsBytes() async =>
       throw const FileSystemException('Storage temporarily unavailable');
